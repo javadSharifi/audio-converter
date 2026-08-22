@@ -49,6 +49,10 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libfuse2 pkg-config libmp3lame-dev libopus-dev
 
+      - name: Install macOS FFmpeg build deps
+        if: runner.os == 'macOS'
+        run: brew install lame opus pkg-config
+
       - name: Install frontend deps
         run: pnpm install --frozen-lockfile
 

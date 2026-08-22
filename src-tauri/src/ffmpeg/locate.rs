@@ -35,7 +35,9 @@ pub fn locate(name: &str) -> Result<PathBuf, crate::error::AppError> {
     if let Ok(cargo_dir) = std::env::var("CARGO_MANIFEST_DIR") {
         for rel in ["binaries", "../binaries"] {
             #[cfg(windows)]
-            let candidate = PathBuf::from(&cargo_dir).join(rel).join(format!("{name}.exe"));
+            let candidate = PathBuf::from(&cargo_dir)
+                .join(rel)
+                .join(format!("{name}.exe"));
             #[cfg(not(windows))]
             let candidate = PathBuf::from(&cargo_dir).join(rel).join(name);
             if candidate.exists() {

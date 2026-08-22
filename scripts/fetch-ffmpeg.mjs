@@ -80,14 +80,16 @@ async function main() {
     paths = await btbN("win");
   }
 
+  const exe = triple.includes("windows") ? ".exe" : "";
   for (const name of ["ffmpeg", "ffprobe"]) {
     if (!existsSync(paths[name])) throw new Error(`${name} not produced`);
     // Triple-suffixed names are what Tauri's externalBin resolves at runtime;
     // unsuffixed copies serve cargo-test fallback and local dev.
     for (const suffix of [triple, ""]) {
-      const dest = path.join(BIN_DIR, suffix ? `${name}-${suffix}` : name);
+      const base = suffix ? `${name}-${suffix}` : name;
+      const dest = path.join(BIN_DIR, `${base}${exe}`);
       execSync(`cp ${JSON.stringify(paths[name])} ${JSON.stringify(dest)}`);
-      execSync(`chmod 755 ${JSON.stringify(dest)}`);
+      try { execSync(`chmod 755 ${JSON.stringify(dest)}`); } catch { /* chmod n/a on Windows */ }
       console.log(`installed ${dest}`);
     }
   }
