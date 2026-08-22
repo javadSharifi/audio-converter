@@ -15,21 +15,32 @@ pub fn free_bytes(path: &std::path::Path) -> Option<u64> {
 #[cfg(windows)]
 pub fn free_bytes(path: &std::path::Path) -> Option<u64> {
     use windows_sys::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
-    use windows_sys::Win32::Foundation::ULARGE_INTEGER;
+
+    // ABI-compatible stand-in; avoids depending on where windows-sys
+    // happens to export ULARGE_INTEGER across versions.
+    #[repr(C)]
+    struct UlargeInteger {
+        quad_part: u64,
+    }
 
     let wide: Vec<u16> = path
         .to_string_lossy()
         .encode_utf16()
         .chain(std::iter::once(0))
         .collect();
-    let mut avail = ULARGE_INTEGER { u: Default::default() };
+    let mut avail = UlargeInteger { quad_part: 0 };
     let ok = unsafe {
-        GetDiskFreeSpaceExW(wide.as_ptr(), &mut avail, std::ptr::null_mut(), std::ptr::null_mut())
+        GetDiskFreeSpaceExW(
+            wide.as_ptr(),
+            &mut avail as *mut UlargeInteger as *mut _,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+        )
     };
     if ok == 0 {
         return None;
     }
-    Some(unsafe { *avail.QuadPart() })
+    Some(avail.quad_part)
 }
 
 /// Estimate encoded output size in bytes for the given duration.
