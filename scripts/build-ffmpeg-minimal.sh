@@ -52,6 +52,9 @@ build_ffmpeg() {
   if [[ -x "$BUILD_DIR/bin/ffmpeg" && -x "$BUILD_DIR/bin/ffprobe" ]]; then echo "ffmpeg: cached"; return; fi
   fetch "https://ffmpeg.org/releases/ffmpeg-$FF_VERSION.tar.xz" "ffmpeg.tar.xz"
   rm -rf "$CACHE/ffmpeg" && mkdir -p "$CACHE/ffmpeg" && tar xJf "$CACHE/ffmpeg.tar.xz" -C "$CACHE/ffmpeg" --strip-components=1
+  # x86 asm needs nasm/yasm, which CI runners often lack; skip it when absent.
+  local asm_flag=""
+  command -v nasm >/dev/null 2>&1 || asm_flag="--disable-x86asm"
   (cd "$CACHE/ffmpeg" && PKG_CONFIG_PATH="$DEPS/lib/pkgconfig" ./configure \
     --prefix="$BUILD_DIR" \
     --disable-gpl --disable-nonfree --disable-doc --disable-debug --disable-autodetect \
@@ -60,6 +63,7 @@ build_ffmpeg() {
     --enable-ffmpeg --enable-ffprobe \
     --extra-cflags="-I$DEPS/include" \
     --extra-ldflags="-L$DEPS/lib" \
+    $asm_flag \
     && make -j"$JOBS" && make install)
   echo "ffmpeg: built"
 }
