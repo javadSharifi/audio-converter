@@ -1,0 +1,85 @@
+import type { TranslationKey } from "./en";
+
+/** Persian translations (RTL). */
+export const fa: Record<TranslationKey, string> = {
+  appTitle: "مبدل صدا",
+  dropHere: "فایل‌های ویدیویی را اینجا رها کنید",
+  orBrowse: "یا برای انتخاب کلیک کنید",
+  supported: "MP4، MKV، AVI، MOV، WEBM، FLV، WMV و سایر فرمت‌ها",
+  addFiles: "افزودن فایل",
+  clearList: "پاک کردن فهرست",
+  removeFile: "حذف",
+  retryFile: "تلاش دوباره",
+
+  colFile: "فایل",
+  colSize: "حجم",
+  colDuration: "مدت",
+  colFormat: "فرمت",
+  colStatus: "وضعیت",
+
+  outputSettings: "تنظیمات خروجی",
+  format: "قالب",
+  quality: "کیفیت",
+  qLow: "کم",
+  qMedium: "متوسط",
+  qHigh: "زیاد",
+  qVeryHigh: "خیلی زیاد",
+  qCustom: "سفارشی",
+  bitrate: "بیت‌ریت",
+  sampleRate: "نرخ نمونه",
+  channels: "کانال‌ها",
+  chMono: "تک‌کاناله",
+  chStereo: "دوکاناله",
+
+  splitAudio: "تقسیم صدا به چند بخش",
+  splitDuration: "مدت هر بخش (دقیقه یا HH:MM:SS)",
+  splitDurationPlaceholder: "مثلاً ۶۰ یا 1:00:00",
+
+  removeSilence: "حذف سکوت‌ها",
+  silenceThreshold: "آستانه سکوت",
+  silenceMinDuration: "حداقل مدت سکوت",
+  seconds: "ثانیه",
+
+  outputLocation: "محل ذخیره خروجی",
+  outSameAsSource: "همان پوشه فایل منبع",
+  outCustomFolder: "انتخاب پوشه…",
+  outPerSourceFolder: "زیرپوشه برای هر فایل",
+  chooseFolder: "مرور…",
+
+  advanced: "تنظیمات پیشرفته",
+  startConversion: "شروع تبدیل",
+  cancelAll: "لغو همه",
+  clearFinished: "پاکسازی موارد پایان‌یافته",
+  overallProgress: "پیشرفت کلی",
+  filesCompleted: "{done} از {total} فایل انجام شد",
+
+  statusWaiting: "در صف",
+  statusProcessing: "در حال پردازش",
+  statusCompleted: "انجام شد",
+  statusFailed: "ناموفق",
+  statusCancelled: "لغو شده",
+
+  errNoFiles: "ابتدا حداقل یک فایل ویدیوی معتبر اضافه کنید.",
+  errInvalidSplit: "مدت بخش را به‌درستی وارد کنید.",
+  errNoOutputDir: "ابتدا پوشه خروجی را انتخاب کنید.",
+  errSomeFilesInvalid: "برخی فایل‌ها قابل خواندن نبودند و نادیده گرفته می‌شوند.",
+
+  warnAllSilent: "کل ورودی سکوت بود — یک فایل حداقلی نوشته شد.",
+  showDetails: "نمایش جزئیات فنی",
+  hideDetails: "پنهان کردن جزئیات فنی",
+  openOutputFolder: "بازکردن پوشه خروجی",
+
+  settingsTitle: "تنظیمات",
+  language: "زبان",
+  theme: "پوسته",
+  themeLight: "روشن",
+  themeDark: "تاریک",
+  themeSystem: "سیستم",
+  concurrency: "تسک‌های همزمان",
+  autoOpenOutput: "بازکردن خودکار پوشه خروجی پس از پایان",
+  saveSettings: "ذخیره",
+  settingsSaved: "ذخیره شد",
+
+  queueEmpty: "صف خالی است — برای شروع فایل اضافه کنید.",
+  estimatedSize: "حجم تقریبی خروجی",
+};

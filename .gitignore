@@ -1,0 +1,8 @@
+node_modules
+dist
+dist-ssr
+src-tauri/target
+src-tauri/binaries/*
+!src-tauri/binaries/.gitkeep
+*.local
+.DS_Store
