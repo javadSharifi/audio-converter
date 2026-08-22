@@ -44,8 +44,13 @@ build_opus() {
   if [[ -f "$DEPS/lib/libopus.a" ]]; then echo "opus: cached"; return; fi
   fetch "https://downloads.xiph.org/releases/opus/opus-$OPUS_VERSION.tar.gz" "opus.tar.gz"
   rm -rf "$CACHE/opus" && mkdir -p "$CACHE/opus" && tar xzf "$CACHE/opus.tar.gz" -C "$CACHE/opus" --strip-components=1
-  (cd "$CACHE/opus" && ./configure --prefix="$DEPS" --disable-shared --enable-static --disable-doc --disable-extra-programs && make -j"$JOBS" && make install)
+  (cd "$CACHE/opus" && ./configure --prefix="$DEPS" --disable-shared --enable-static --disable-doc --disable-extra-programs \
+    && make -j"$JOBS" && make install)
   echo "opus: built"
+  echo "--- opus pkgconfig check ---"
+  ls -la "$DEPS/lib/pkgconfig/" || true
+  cat "$DEPS/lib/pkgconfig/opus.pc" 2>&1 || true
+  echo "--- end opus pkgconfig check ---"
 }
 
 build_ffmpeg() {
@@ -64,7 +69,8 @@ build_ffmpeg() {
     --extra-cflags="-I$DEPS/include" \
     --extra-ldflags="-L$DEPS/lib" \
     $asm_flag \
-    && make -j"$JOBS" && make install)
+    && make -j"$JOBS" && make install) \
+  || { echo "=== FFMPEG BUILD FAILED — config.log tail ==="; tail -40 "$CACHE/ffmpeg/ffbuild/config.log" 2>/dev/null; exit 1; }
   echo "ffmpeg: built"
 }
 
