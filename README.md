@@ -85,11 +85,11 @@ guard precedes every output path. Unicode/Persian paths are handled natively end
 This application bundles **FFmpeg 7.1.1** binaries built from source under the
 **GNU Lesser General Public License (LGPL) v2.1-or-later**:
 
-- macOS binaries: compiled from the official `ffmpeg-7.1.1.tar.xz` release with
-  `--disable-gpl --disable-nonfree --enable-libmp3lame --enable-libopus`
-  (see `scripts/build-ffmpeg-macos.sh`). License: **LGPL v2.1+**.
-- Windows/Linux CI binaries: BtbN "lgpl" release archives
-  (`ffmpeg-master-latest-{win64,linux64}-lgpl`), also LGPL-licensed builds.
+- macOS & Linux binaries: compiled from official sources via
+  `scripts/build-ffmpeg-minimal.sh` — fully static builds (only system libs
+  linked) with libmp3lame + libopus, no GPL components. License: **LGPL v2.1+**.
+- Windows binary: BtbN "lgpl" release archive
+  (`ffmpeg-master-latest-win64-lgpl`), LGPL-licensed build.
 
 These builds contain no GPL-only components (no libx264/x265). The app uses FFmpeg
 solely via its command-line interface as a separate process, which constitutes use

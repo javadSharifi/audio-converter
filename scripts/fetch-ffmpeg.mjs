@@ -38,20 +38,8 @@ async function download(url, dest) {
   await pipeline(res.body, createWriteStream(dest));
 }
 
-async function btbN(kind) {
+async function btbNWin() {
   const tmp = await mkdtemp(path.join(os.tmpdir(), "ff-btbn-"));
-  if (kind === "linux") {
-    const url =
-      "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-lgpl.tar.xz";
-    const tarball = path.join(tmp, "ff.tar.xz");
-    await download(url, tarball);
-    execSync(`tar xf ${JSON.stringify(tarball)} -C ${JSON.stringify(tmp)}`);
-    return {
-      ffmpeg: path.join(tmp, "ffmpeg-master-latest-linux64-lgpl", "bin", "ffmpeg"),
-      ffprobe: path.join(tmp, "ffmpeg-master-latest-linux64-lgpl", "bin", "ffprobe"),
-    };
-  }
-  // windows
   const url =
     "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-lgpl.zip";
   const zip = path.join(tmp, "ff.zip");
@@ -68,16 +56,15 @@ async function main() {
   mkdirSync(BIN_DIR, { recursive: true });
 
   let paths;
-  if (triple.endsWith("-apple-darwin")) {
-    execSync("bash scripts/build-ffmpeg-macos.sh", { stdio: "inherit" });
+  if (triple.endsWith("-apple-darwin") || triple.includes("linux")) {
+    // Minimal static LGPL build from source (portable + small).
+    execSync("bash scripts/build-ffmpeg-minimal.sh", { stdio: "inherit" });
     paths = {
-      ffmpeg: path.join(BIN_DIR, "build-macos", "bin", "ffmpeg"),
-      ffprobe: path.join(BIN_DIR, "build-macos", "bin", "ffprobe"),
+      ffmpeg: path.join(BIN_DIR, "build-minimal", "bin", "ffmpeg"),
+      ffprobe: path.join(BIN_DIR, "build-minimal", "bin", "ffprobe"),
     };
-  } else if (triple.includes("linux")) {
-    paths = await btbN("linux");
   } else {
-    paths = await btbN("win");
+    paths = await btbNWin();
   }
 
   const exe = triple.includes("windows") ? ".exe" : "";
