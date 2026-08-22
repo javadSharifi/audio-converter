@@ -36,8 +36,7 @@ build_lame() {
   if [[ -f "$DEPS/lib/libmp3lame.a" ]]; then echo "lame: cached"; return; fi
   fetch "https://downloads.sourceforge.net/project/lame/lame/$LAME_VERSION/lame-$LAME_VERSION.tar.gz" "lame.tar.gz"
   rm -rf "$CACHE/lame" && mkdir -p "$CACHE/lame" && tar xzf "$CACHE/lame.tar.gz" -C "$CACHE/lame" --strip-components=1
-  (cd "$CACHE/lame" && ./configure --prefix="$DEPS" --disable-shared --enable-static --disable-frontend --disable-debug > /dev/null \
-    && make -j"$JOBS" > /dev/null && make install > /dev/null)
+  (cd "$CACHE/lame" && ./configure --prefix="$DEPS" --disable-shared --enable-static --disable-frontend --disable-debug && make -j"$JOBS" && make install)
   echo "lame: built"
 }
 
@@ -45,8 +44,7 @@ build_opus() {
   if [[ -f "$DEPS/lib/libopus.a" ]]; then echo "opus: cached"; return; fi
   fetch "https://downloads.xiph.org/releases/opus/opus-$OPUS_VERSION.tar.gz" "opus.tar.gz"
   rm -rf "$CACHE/opus" && mkdir -p "$CACHE/opus" && tar xzf "$CACHE/opus.tar.gz" -C "$CACHE/opus" --strip-components=1
-  (cd "$CACHE/opus" && ./configure --prefix="$DEPS" --disable-shared --enable-static --disable-doc --disable-extra-programs > /dev/null \
-    && make -j"$JOBS" > /dev/null && make install > /dev/null)
+  (cd "$CACHE/opus" && ./configure --prefix="$DEPS" --disable-shared --enable-static --disable-doc --disable-extra-programs && make -j"$JOBS" && make install)
   echo "opus: built"
 }
 
@@ -61,8 +59,8 @@ build_ffmpeg() {
     --enable-libmp3lame --enable-libopus \
     --enable-ffmpeg --enable-ffprobe \
     --extra-cflags="-I$DEPS/include" \
-    --extra-ldflags="-L$DEPS/lib" > /dev/null \
-    && make -j"$JOBS" > /dev/null && make install > /dev/null)
+    --extra-ldflags="-L$DEPS/lib" \
+    && make -j"$JOBS" && make install)
   echo "ffmpeg: built"
 }
 
