@@ -10,7 +10,9 @@ pub fn set_console(enabled: bool) {
 }
 
 fn timestamp() -> String {
-    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default();
     let secs = now.as_secs();
     let days = secs / 86400;
     // Civil date from days (Howard Hinnant's algorithm)
@@ -42,7 +44,11 @@ pub fn log(level: &str, msg: &str) {
     if let Some(dir) = crate::settings::app_data_dir() {
         let logs = dir.join("logs");
         let _ = std::fs::create_dir_all(&logs);
-        if let Ok(mut f) = OpenOptions::new().create(true).append(true).open(logs.join("app.log")) {
+        if let Ok(mut f) = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(logs.join("app.log"))
+        {
             let _ = writeln!(f, "{line}");
         }
     }

@@ -8,7 +8,11 @@ use std::path::PathBuf;
 ///    `externalBin` sidecars in both dev and bundled apps.
 /// 3. Bare name from `PATH` (dev convenience only; never relied on in prod).
 pub fn locate(name: &str) -> Result<PathBuf, crate::error::AppError> {
-    let env_key = if name == "ffmpeg" { "FFMPEG_PATH" } else { "FFPROBE_PATH" };
+    let env_key = if name == "ffmpeg" {
+        "FFMPEG_PATH"
+    } else {
+        "FFPROBE_PATH"
+    };
     if let Ok(p) = std::env::var(env_key) {
         let path = PathBuf::from(&p);
         if path.exists() {

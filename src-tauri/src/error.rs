@@ -19,7 +19,9 @@ impl std::fmt::Display for AppError {
             AppError::Io(m) => write!(f, "File system error: {m}"),
             AppError::FFmpeg(m) => write!(f, "Processing failed: {m}"),
             AppError::NoAudioTrack(_) => write!(f, "This file has no audio track"),
-            AppError::CorruptedFile(_) => write!(f, "Unable to read input file (corrupted or unsupported)"),
+            AppError::CorruptedFile(_) => {
+                write!(f, "Unable to read input file (corrupted or unsupported)")
+            }
             AppError::InsufficientDiskSpace { needed, available } => write!(
                 f,
                 "Not enough disk space. Need about {:.1} MB, only {:.1} MB available.",
@@ -64,7 +66,11 @@ impl Serialize for AppError {
             _ => None,
         };
         let repr = Repr {
-            kind: format!("{self:?}").split('(').next().unwrap_or("Error").to_string(),
+            kind: format!("{self:?}")
+                .split('(')
+                .next()
+                .unwrap_or("Error")
+                .to_string(),
             message: self.to_string(),
             technical,
         };

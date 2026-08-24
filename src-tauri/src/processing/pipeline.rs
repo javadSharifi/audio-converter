@@ -242,7 +242,10 @@ pub fn run_job(
     let est = disk::estimate_output_bytes(options.effective_bitrate(), post_total) + 8_388_608;
     if let Some(free) = disk::free_bytes(finals[0].parent().unwrap_or(Path::new("."))) {
         if free < est {
-            return Err(AppError::InsufficientDiskSpace { needed: est, available: free });
+            return Err(AppError::InsufficientDiskSpace {
+                needed: est,
+                available: free,
+            });
         }
     }
 
@@ -266,81 +269,112 @@ pub fn run_job(
         .collect();
 
     let use_filters = options.remove_silence || part_count > 1;
-    let args = build_conversion_args(source, options, &parts, &temps, use_filters);
 
     // Progress plumbing: stdout parser -> shared state -> emitter thread.
-    let total_us = (total * 1_000_000.0).max(1.0);
-    let shared: Arc<Mutex<(u64, String)>> = Arc::new(Mutex::new((0, String::new())));
-    let writer = Arc::clone(&shared);
-    let stdout_cb: Box<dyn FnMut(&str) + Send> = Box::new(move |line: &str| {
-        let mut g = writer.lock().unwrap();
-        if let Some(v) = line.strip_prefix("out_time_us=") {
-            g.0 = v.trim().parse().unwrap_or(g.0);
-        } else if let Some(v) = line.strip_prefix("speed=") {
-            g.1 = v.trim().to_string();
+    // One ffmpeg invocation PER PART: `-progress` out_time is unreliable when
+    // several muxed outputs share one filter_complex (it tracks the shortest
+    // sink), which froze UI progress in split mode. Sequential per-part runs
+    // give exact per-part fractions; overall percent spans the encode phase.
+    let encode_span = 100.0 - ENCODE_PHASE_START;
+    let mut last_result: Result<()> = Ok(());
+    for (pi, segs) in parts.iter().enumerate() {
+        if cancel.is_cancelled() {
+            last_result = Err(AppError::Cancelled);
+            break;
         }
-    });
 
-    let stop = Arc::new(AtomicBool::new(false));
-    let emitter_thread = {
-        let reader = Arc::clone(&shared);
-        let stop = Arc::clone(&stop);
-        let emit = Arc::clone(emit);
-        let job_id = job_id.to_string();
-        let src = source.to_path_buf();
-        let warn = warning.clone();
-        std::thread::spawn(move || {
-            while !stop.load(Ordering::SeqCst) {
-                let (us, speed) = {
-                    let g = reader.lock().unwrap();
-                    (g.0, g.1.clone())
-                };
-                let frac = us as f64 / total_us;
-                let percent = ENCODE_PHASE_START + frac * (100.0 - ENCODE_PHASE_START);
-                emit(processing_event(&job_id, &src, Some(percent.clamp(0.0, 99.9)), Some(speed), warn.clone()));
-                std::thread::sleep(Duration::from_millis(250));
+        let phase_lo = ENCODE_PHASE_START + encode_span * (pi as f64) / (part_count as f64);
+        let phase_hi = ENCODE_PHASE_START + encode_span * ((pi + 1) as f64) / (part_count as f64);
+        let part_secs: f64 = segs.iter().map(|&(s, e)| e - s).sum();
+        let part_us = (part_secs * 1_000_000.0).max(1.0);
+
+        let shared: Arc<Mutex<(u64, String)>> = Arc::new(Mutex::new((0, String::new())));
+        let writer = Arc::clone(&shared);
+        let stdout_cb: Box<dyn FnMut(&str) + Send> = Box::new(move |line: &str| {
+            let mut g = writer.lock().unwrap();
+            if let Some(v) = line.strip_prefix("out_time_us=") {
+                g.0 = v.trim().parse().unwrap_or(g.0);
+            } else if let Some(v) = line.strip_prefix("speed=") {
+                g.1 = v.trim().to_string();
             }
-        })
-    };
+        });
 
-    if std::env::var("AUDIO_CONVERTER_DEBUG_ARGS").is_ok() {
-        eprintln!("ARGS={args:?}");
-    }
-    let spec = RunSpec::new(ffmpeg.to_path_buf(), args)
-        .with_stdout_cb(stdout_cb)
-        .cancellable(cancel.clone());
-
-    let result = spec.run();
-    stop.store(true, Ordering::SeqCst);
-    let _ = emitter_thread.join();
-
-    match result {
-        Err(e @ (AppError::Cancelled | AppError::FFmpeg(_) | AppError::Io(_))) => {
-            cleanup_temps(&temps);
-            Err(e)
-        }
-        Err(e) => {
-            cleanup_temps(&temps);
-            Err(e)
-        }
-        Ok(outcome) if !outcome.success => {
-            cleanup_temps(&temps);
-            Err(AppError::FFmpeg(join_tail(&outcome.stderr_tail)))
-        }
-        Ok(_) => {
-            for (t, f) in temps.iter().zip(finals.iter()) {
-                std::fs::rename(t, f).map_err(|e| {
-                    cleanup_temps(&temps);
-                    AppError::Io(format!("Failed to finalize {}: {e}", f.display()))
-                })?;
-            }
-            crate::log_info!("job {job_id} completed: {} file(s)", finals.len());
-            Ok(JobOutcome {
-                outputs: finals,
-                warning,
+        let stop = Arc::new(AtomicBool::new(false));
+        let emitter_thread = {
+            let reader = Arc::clone(&shared);
+            let stop = Arc::clone(&stop);
+            let emit = Arc::clone(emit);
+            let job_id = job_id.to_string();
+            let src = source.to_path_buf();
+            let warn = warning.clone();
+            std::thread::spawn(move || {
+                while !stop.load(Ordering::SeqCst) {
+                    let (us, speed) = {
+                        let g = reader.lock().unwrap();
+                        (g.0, g.1.clone())
+                    };
+                    let frac = (us as f64 / part_us).clamp(0.0, 1.0);
+                    let percent = phase_lo + frac * (phase_hi - phase_lo);
+                    emit(processing_event(
+                        &job_id,
+                        &src,
+                        Some(percent.clamp(0.0, 99.9)),
+                        Some(speed),
+                        warn.clone(),
+                    ));
+                    std::thread::sleep(Duration::from_millis(250));
+                }
             })
+        };
+
+        let args = build_conversion_args(
+            source,
+            options,
+            std::slice::from_ref(segs),
+            &temps[pi..=pi],
+            use_filters,
+        );
+        if std::env::var("AUDIO_CONVERTER_DEBUG_ARGS").is_ok() {
+            eprintln!("ARGS[{pi}]={args:?}");
+        }
+        let spec = RunSpec::new(ffmpeg.to_path_buf(), args)
+            .with_stdout_cb(stdout_cb)
+            .cancellable(cancel.clone());
+
+        let result = spec.run();
+        stop.store(true, Ordering::SeqCst);
+        let _ = emitter_thread.join();
+
+        match result {
+            Ok(outcome) if outcome.success => continue,
+            Err(e @ (AppError::Cancelled | AppError::FFmpeg(_) | AppError::Io(_))) => {
+                last_result = Err(e)
+            }
+            Err(e) => last_result = Err(e),
+            Ok(outcome) => last_result = Err(AppError::FFmpeg(join_tail(&outcome.stderr_tail))),
+        }
+        break;
+    }
+
+    if last_result.is_err() {
+        cleanup_temps(&temps);
+        return Err(last_result.err().unwrap());
+    }
+
+    for (t, f) in temps.iter().zip(finals.iter()) {
+        if let Err(e) = std::fs::rename(t, f) {
+            cleanup_temps(&temps);
+            return Err(AppError::Io(format!(
+                "Failed to finalize {}: {e}",
+                f.display()
+            )));
         }
     }
+    crate::log_info!("job {job_id} completed: {} file(s)", finals.len());
+    Ok(JobOutcome {
+        outputs: finals,
+        warning,
+    })
 }
 
 /// Scan the source with `silencedetect`, emitting scan progress on the way.
@@ -421,10 +455,12 @@ fn detect_silence(
     match result {
         Err(AppError::Cancelled) => Err(AppError::Cancelled),
         Err(e) => Err(AppError::FFmpeg(format!("Silence analysis failed: {e}"))),
-        Ok(outcome) if !outcome.success && outcome.code != Some(0) => Err(AppError::FFmpeg(format!(
-            "Silence analysis failed: {}",
-            join_tail(&outcome.stderr_tail)
-        ))),
+        Ok(outcome) if !outcome.success && outcome.code != Some(0) => {
+            Err(AppError::FFmpeg(format!(
+                "Silence analysis failed: {}",
+                join_tail(&outcome.stderr_tail)
+            )))
+        }
         Ok(_) => {
             let buf = stderr_buf.lock().unwrap().clone();
             let detected = silence::parse_silencedetect(&buf);
@@ -503,7 +539,10 @@ mod tests {
 
     #[test]
     fn wav_has_no_bitrate() {
-        assert_eq!(encoder_args(&AudioFormat::Wav, None), vec!["-c:a", "pcm_s16le"]);
+        assert_eq!(
+            encoder_args(&AudioFormat::Wav, None),
+            vec!["-c:a", "pcm_s16le"]
+        );
     }
 
     #[test]

@@ -24,13 +24,16 @@ pub struct FormatInfo {
 }
 
 pub fn parse_probe_json(stdout: &str) -> Result<ProbeResult, crate::error::AppError> {
-    serde_json::from_str(stdout)
-        .map_err(|e| crate::error::AppError::CorruptedFile(format!("ffprobe returned invalid JSON: {e}")))
+    serde_json::from_str(stdout).map_err(|e| {
+        crate::error::AppError::CorruptedFile(format!("ffprobe returned invalid JSON: {e}"))
+    })
 }
 
 impl ProbeResult {
     pub fn audio_stream(&self) -> Option<&StreamInfo> {
-        self.streams.iter().find(|s| s.codec_type.as_deref() == Some("audio"))
+        self.streams
+            .iter()
+            .find(|s| s.codec_type.as_deref() == Some("audio"))
     }
 
     pub fn duration_secs(&self) -> Option<f64> {
@@ -43,7 +46,10 @@ impl ProbeResult {
 
 /// Run `ffprobe` against `path` and return parsed info. Never panics on bad
 /// input; maps every failure to a user-appropriate error.
-pub fn probe_file(ffprobe: &std::path::Path, path: &str) -> Result<ProbeResult, crate::error::AppError> {
+pub fn probe_file(
+    ffprobe: &std::path::Path,
+    path: &str,
+) -> Result<ProbeResult, crate::error::AppError> {
     use crate::error::AppError;
 
     if !std::path::Path::new(path).exists() {
@@ -53,8 +59,10 @@ pub fn probe_file(ffprobe: &std::path::Path, path: &str) -> Result<ProbeResult, 
     // Structured argument array — never a shell string (injection safety).
     let output = std::process::Command::new(ffprobe)
         .args([
-            "-v", "quiet",
-            "-print_format", "json",
+            "-v",
+            "quiet",
+            "-print_format",
+            "json",
             "-show_format",
             "-show_streams",
             "--",
@@ -67,11 +75,15 @@ pub fn probe_file(ffprobe: &std::path::Path, path: &str) -> Result<ProbeResult, 
     let result = parse_probe_json(&stdout)?;
 
     if result.format.is_none() && result.streams.is_empty() {
-        return Err(AppError::CorruptedFile(format!("ffprobe found no media data in {path}")));
+        return Err(AppError::CorruptedFile(format!(
+            "ffprobe found no media data in {path}"
+        )));
     }
 
     if result.audio_stream().is_none() {
-        return Err(AppError::NoAudioTrack(format!("{path} contains no audio stream")));
+        return Err(AppError::NoAudioTrack(format!(
+            "{path} contains no audio stream"
+        )));
     }
 
     Ok(result)

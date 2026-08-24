@@ -78,7 +78,9 @@ pub fn parse_duration_input(raw: &str) -> Result<f64, String> {
         }
         return Ok(secs);
     }
-    let minutes: f64 = raw.parse().map_err(|_| format!("Invalid duration: {raw}"))?;
+    let minutes: f64 = raw
+        .parse()
+        .map_err(|_| format!("Invalid duration: {raw}"))?;
     if minutes <= 0.0 {
         return Err("Duration must be positive".into());
     }

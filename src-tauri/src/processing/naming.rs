@@ -8,8 +8,7 @@ pub fn sanitize_component(name: &str) -> String {
     let cleaned: String = name
         .chars()
         .filter(|c| {
-            !matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|')
-                && !c.is_control()
+            !matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') && !c.is_control()
         })
         .collect();
     let trimmed = cleaned.trim().trim_end_matches('.').trim();
@@ -42,14 +41,25 @@ pub fn unique_path(target: &Path) -> PathBuf {
         }
     }
     // Practically unreachable; deterministic last resort.
-    parent.join(format!("{stem}-{}.{}", std::process::id(), ext.trim_start_matches('.')))
+    parent.join(format!(
+        "{stem}-{}.{}",
+        std::process::id(),
+        ext.trim_start_matches('.')
+    ))
 }
 
 /// Decide the final directory for outputs of `source`.
-pub fn output_directory(source: &Path, options: &ConversionOptions, multiple_sources: bool) -> PathBuf {
-    let parent = source.parent().unwrap_or_else(|| Path::new(".")).to_path_buf();
-    let stem = sanitize_component(&
-        source
+pub fn output_directory(
+    source: &Path,
+    options: &ConversionOptions,
+    multiple_sources: bool,
+) -> PathBuf {
+    let parent = source
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .to_path_buf();
+    let stem = sanitize_component(
+        &source
             .file_stem()
             .map(|s| s.to_string_lossy().into_owned())
             .unwrap_or_else(|| "output".into()),
@@ -57,7 +67,12 @@ pub fn output_directory(source: &Path, options: &ConversionOptions, multiple_sou
     match options.output_mode {
         crate::types::OutputMode::SameAsSource => parent,
         crate::types::OutputMode::CustomFolder => {
-            let root = PathBuf::from(options.custom_output_dir.clone().unwrap_or_else(|| ".".into()));
+            let root = PathBuf::from(
+                options
+                    .custom_output_dir
+                    .clone()
+                    .unwrap_or_else(|| ".".into()),
+            );
             if multiple_sources {
                 root.join(&stem)
             } else {
@@ -78,8 +93,8 @@ pub fn build_output_paths(
     multiple_sources: bool,
 ) -> Vec<PathBuf> {
     let dir = output_directory(source, options, multiple_sources);
-    let stem = sanitize_component(&
-        source
+    let stem = sanitize_component(
+        &source
             .file_stem()
             .map(|s| s.to_string_lossy().into_owned())
             .unwrap_or_else(|| "output".into()),

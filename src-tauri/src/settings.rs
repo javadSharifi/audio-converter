@@ -15,14 +15,16 @@ pub fn app_data_dir() -> Option<PathBuf> {
         return Some(d.clone());
     }
     // Test/dev fallback.
-    std::env::var("AUDIO_CONVERTER_DATA_DIR").ok().map(PathBuf::from)
+    std::env::var("AUDIO_CONVERTER_DATA_DIR")
+        .ok()
+        .map(PathBuf::from)
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Settings {
-    pub language: String,            // "en" | "fa"
-    pub theme: String,               // "light" | "dark" | "system"
+    pub language: String, // "en" | "fa"
+    pub theme: String,    // "light" | "dark" | "system"
     pub default_format: crate::types::AudioFormat,
     pub default_quality: crate::types::QualityPreset,
     pub default_output_mode: crate::types::OutputMode,

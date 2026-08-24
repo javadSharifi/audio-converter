@@ -98,23 +98,20 @@ impl QueueManager {
             }
         }
 
-        // Register cancel token per job (shared by all workers of this batch).
-        let batch_token = CancelToken::new();
+        // Register one cancel token PER JOB so cancelling a single file
+        // doesn't kill the rest of the batch.
         {
             let mut tokens = self.inner.tokens.lock().unwrap();
             for id in &ids {
-                tokens.insert(id.clone(), batch_token.clone());
+                tokens.insert(id.clone(), CancelToken::new());
             }
         }
 
-        let worker_count = concurrency
-            .clamp(1, 32)
-            .min((ids.len().max(1)) as u32) as usize;
+        let worker_count = concurrency.clamp(1, 32).min((ids.len().max(1)) as u32) as usize;
         for _ in 0..worker_count {
             let inner = Arc::clone(&self.inner);
             let options = options.clone();
-            let token = batch_token.clone();
-            std::thread::spawn(move || worker_loop(inner, options, token));
+            std::thread::spawn(move || worker_loop(inner, options));
         }
         ids
     }
@@ -135,7 +132,14 @@ impl QueueManager {
 
     /// Cancel every known job.
     pub fn cancel_all(&self) {
-        let tokens: Vec<CancelToken> = self.inner.tokens.lock().unwrap().values().cloned().collect();
+        let tokens: Vec<CancelToken> = self
+            .inner
+            .tokens
+            .lock()
+            .unwrap()
+            .values()
+            .cloned()
+            .collect();
         for t in tokens {
             t.cancel();
         }
@@ -184,7 +188,8 @@ impl QueueInner {
     fn notify_idle_if_needed(&self) {
         let busy = {
             let jobs = self.jobs.lock().unwrap();
-            jobs.values().any(|r| matches!(r.status, JobStatus::Waiting | JobStatus::Processing))
+            jobs.values()
+                .any(|r| matches!(r.status, JobStatus::Waiting | JobStatus::Processing))
         };
         if !busy {
             let _ = self.app.emit("queue-idle", true);
@@ -204,18 +209,21 @@ fn new_job_id() -> String {
     format!("job-{ts}-{n}")
 }
 
-fn worker_loop(inner: Arc<QueueInner>, options: ConversionOptions, batch_token: CancelToken) {
+fn worker_loop(inner: Arc<QueueInner>, options: ConversionOptions) {
     inner.active_workers.fetch_add(1, Ordering::SeqCst);
 
     loop {
-        if inner.shutting_down.load(Ordering::SeqCst) || batch_token.is_cancelled() {
+        if inner.shutting_down.load(Ordering::SeqCst) {
             break;
         }
         let next = inner.order.lock().unwrap().pop_front();
         let Some((job_id, source)) = next else { break };
 
-        // Queued-cancel fast path.
-        if batch_token.is_cancelled() {
+        // Per-job token: cancel(job_id) kills only this file.
+        let Some(token) = inner.tokens.lock().unwrap().get(&job_id).cloned() else {
+            break;
+        };
+        if token.is_cancelled() {
             if let Some(rec) = inner.update(&job_id, |r| r.status = JobStatus::Cancelled) {
                 inner.emit_event_for(&rec);
             }
@@ -261,7 +269,7 @@ fn worker_loop(inner: Arc<QueueInner>, options: ConversionOptions, batch_token: 
             multiple_sources,
             &ffmpeg,
             &ffprobe,
-            batch_token.clone(),
+            token.clone(),
             &emitter,
         );
 

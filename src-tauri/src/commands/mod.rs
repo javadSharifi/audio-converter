@@ -91,7 +91,10 @@ pub fn start_conversion(
         }
     }
     let conc = concurrency.unwrap_or_else(|| Settings::load().concurrency);
-    crate::log_info!("queue started: {} file(s), concurrency {conc}", inputs.len());
+    crate::log_info!(
+        "queue started: {} file(s), concurrency {conc}",
+        inputs.len()
+    );
     Ok(queue.enqueue(inputs, options, conc))
 }
 
@@ -124,7 +127,11 @@ pub struct DiskFree {
 #[tauri::command]
 pub fn disk_free(path: String) -> Result<DiskFree> {
     let target = Path::new(&path);
-    let dir = if target.is_dir() { target } else { target.parent().unwrap_or(target) };
+    let dir = if target.is_dir() {
+        target
+    } else {
+        target.parent().unwrap_or(target)
+    };
     crate::disk::free_bytes(dir)
         .map(|free_bytes| DiskFree { free_bytes })
         .ok_or_else(|| AppError::Io(format!("Cannot determine free space for {path}")))

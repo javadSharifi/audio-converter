@@ -127,19 +127,29 @@ impl ConversionOptions {
 
     pub fn validate(&self) -> Result<()> {
         if self.split_enabled && self.split_duration_secs <= 0.0 {
-            return Err(AppError::InvalidInput("Split duration must be positive".into()));
+            return Err(AppError::InvalidInput(
+                "Split duration must be positive".into(),
+            ));
         }
         if self.quality == QualityPreset::Custom {
             let br = self.custom_bitrate_kbps.unwrap_or(0);
             if !(16..=1000).contains(&br) {
-                return Err(AppError::InvalidInput("Bitrate must be between 16 and 1000 kbps".into()));
+                return Err(AppError::InvalidInput(
+                    "Bitrate must be between 16 and 1000 kbps".into(),
+                ));
             }
         }
-        if self.remove_silence && !(self.silence_min_duration_secs > 0.0 && self.silence_min_duration_secs < 3600.0) {
-            return Err(AppError::InvalidInput("Minimum silence duration must be between 0 and 3600 seconds".into()));
+        if self.remove_silence
+            && !(self.silence_min_duration_secs > 0.0 && self.silence_min_duration_secs < 3600.0)
+        {
+            return Err(AppError::InvalidInput(
+                "Minimum silence duration must be between 0 and 3600 seconds".into(),
+            ));
         }
         if self.remove_silence && !(-90..=-1).contains(&self.silence_threshold_db) {
-            return Err(AppError::InvalidInput("Silence threshold must be between -90 and -1 dB".into()));
+            return Err(AppError::InvalidInput(
+                "Silence threshold must be between -90 and -1 dB".into(),
+            ));
         }
         if self.output_mode == OutputMode::CustomFolder && self.custom_output_dir.is_none() {
             return Err(AppError::InvalidInput("Output folder is required".into()));

@@ -8,7 +8,7 @@ pub mod queue;
 pub mod settings;
 pub mod types;
 
-use tauri::Manager;
+use tauri::{Manager, RunEvent};
 
 /// App entry point (called from main.rs).
 pub fn run() {
@@ -36,6 +36,14 @@ pub fn run() {
             commands::get_settings,
             commands::save_settings,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running audio converter");
+        .build(tauri::generate_context!())
+        .expect("error while building audio converter")
+        .run(|app_handle, event| {
+            // Kill any in-flight ffmpeg children when the app quits;
+            // otherwise they outlive the process as orphans.
+            if matches!(event, RunEvent::ExitRequested { .. } | RunEvent::Exit) {
+                use tauri::Manager as _;
+                app_handle.state::<queue::QueueManager>().cancel_all();
+            }
+        });
 }

@@ -44,19 +44,41 @@ fn gen_video(dir: &Path, name: &str) -> PathBuf {
         .args([
             "-y",
             "-hide_banner",
-            "-loglevel", "error",
-            "-f", "lavfi", "-i", "testsrc=duration=6:size=160x120:rate=10",
-            "-f", "lavfi", "-i", "sine=frequency=440:duration=2",
-            "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono",
-            "-f", "lavfi", "-i", "sine=frequency=550:duration=2.5",
+            "-loglevel",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc=duration=6:size=160x120:rate=10",
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=frequency=440:duration=2",
+            "-f",
+            "lavfi",
+            "-i",
+            "anullsrc=r=44100:cl=mono",
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=frequency=550:duration=2.5",
             "-filter_complex",
             "[1:a]aformat=sample_rates=44100:channel_layouts=mono[t0];\
              [2:a]atrim=duration=1.5,aformat=sample_rates=44100:channel_layouts=mono[t1];\
              [3:a]aformat=sample_rates=44100:channel_layouts=mono[t2];\
              [t0][t1][t2]concat=n=3:v=0:a=1[aout]",
-            "-map", "0:v", "-map", "[aout]",
-            "-c:v", "mpeg4", "-q:v", "6",
-            "-c:a", "aac", "-b:a", "96k",
+            "-map",
+            "0:v",
+            "-map",
+            "[aout]",
+            "-c:v",
+            "mpeg4",
+            "-q:v",
+            "6",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "96k",
         ])
         .arg(&out)
         .status()
@@ -70,9 +92,18 @@ fn gen_video_silent(dir: &Path, name: &str) -> PathBuf {
     let out = dir.join(name);
     let status = Command::new(ffmpeg())
         .args([
-            "-y", "-hide_banner", "-loglevel", "error",
-            "-f", "lavfi", "-i", "testsrc=duration=3:size=160x120:rate=10",
-            "-c:v", "mpeg4", "-q:v", "6",
+            "-y",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc=duration=3:size=160x120:rate=10",
+            "-c:v",
+            "mpeg4",
+            "-q:v",
+            "6",
         ])
         .arg(&out)
         .status()
@@ -90,7 +121,9 @@ const TOLERANCE: f64 = 0.35;
 
 #[test]
 fn e2e_straight_mp3_conversion() {
-    if !bin("ffmpeg").is_some() || !bin("ffprobe").is_some() { return; }
+    if !bin("ffmpeg").is_some() || !bin("ffprobe").is_some() {
+        return;
+    }
     let dir = temp_case("straight");
     let input = gen_video(&dir, "in.mp4");
 
@@ -115,15 +148,14 @@ fn e2e_straight_mp3_conversion() {
     let out = &outcome.outputs[0];
     assert!(out.extension().unwrap() == "mp3");
     let dur = probe_duration(out);
-    assert!(
-        (dur - 6.0).abs() < TOLERANCE,
-        "expected ~6s, got {dur}"
-    );
+    assert!((dur - 6.0).abs() < TOLERANCE, "expected ~6s, got {dur}");
 }
 
 #[test]
 fn e2e_split_with_remainder() {
-    if !bin("ffmpeg").is_some() || !bin("ffprobe").is_some() { return; }
+    if !bin("ffmpeg").is_some() || !bin("ffprobe").is_some() {
+        return;
+    }
     let dir = temp_case("split");
     let input = gen_video(&dir, "in.mkv");
 
@@ -135,13 +167,21 @@ fn e2e_split_with_remainder() {
     };
     let emitter: audio_converter::processing::pipeline::Emitter = Arc::new(|_| {});
     let outcome = pipeline::run_job(
-        "job-e2e-2", &input, &options, false,
-        &ffmpeg(), &ffprobe(), CancelToken::new(), &emitter,
+        "job-e2e-2",
+        &input,
+        &options,
+        false,
+        &ffmpeg(),
+        &ffprobe(),
+        CancelToken::new(),
+        &emitter,
     )
     .expect("pipeline failed");
 
     assert_eq!(outcome.outputs.len(), 2, "want part01 + remainder part02");
-    assert!(outcome.outputs[0].to_string_lossy().contains("_part_01.flac"));
+    assert!(outcome.outputs[0]
+        .to_string_lossy()
+        .contains("_part_01.flac"));
     let d1 = probe_duration(&outcome.outputs[0]);
     let d2 = probe_duration(&outcome.outputs[1]);
     assert!((d1 - 4.0).abs() < TOLERANCE, "part1 {d1}");
@@ -150,7 +190,9 @@ fn e2e_split_with_remainder() {
 
 #[test]
 fn e2e_silence_removal_shortens_output() {
-    if !bin("ffmpeg").is_some() || !bin("ffprobe").is_some() { return; }
+    if !bin("ffmpeg").is_some() || !bin("ffprobe").is_some() {
+        return;
+    }
     let dir = temp_case("silence");
     let input = gen_video(&dir, "in.mp4"); // 1.5s silence in the middle
 
@@ -163,8 +205,14 @@ fn e2e_silence_removal_shortens_output() {
     };
     let emitter: audio_converter::processing::pipeline::Emitter = Arc::new(|_| {});
     let outcome = pipeline::run_job(
-        "job-e2e-3", &input, &options, false,
-        &ffmpeg(), &ffprobe(), CancelToken::new(), &emitter,
+        "job-e2e-3",
+        &input,
+        &options,
+        false,
+        &ffmpeg(),
+        &ffprobe(),
+        CancelToken::new(),
+        &emitter,
     )
     .expect("pipeline failed");
 
@@ -178,7 +226,9 @@ fn e2e_silence_removal_shortens_output() {
 
 #[test]
 fn e2e_split_calculated_against_post_silence_timeline() {
-    if !bin("ffmpeg").is_some() || !bin("ffprobe").is_some() { return; }
+    if !bin("ffmpeg").is_some() || !bin("ffprobe").is_some() {
+        return;
+    }
     let dir = temp_case("silence-split");
     let input = gen_video(&dir, "in.mp4");
 
@@ -196,8 +246,14 @@ fn e2e_split_calculated_against_post_silence_timeline() {
     };
     let emitter: audio_converter::processing::pipeline::Emitter = Arc::new(|_| {});
     let outcome = pipeline::run_job(
-        "job-e2e-4", &input, &options, false,
-        &ffmpeg(), &ffprobe(), CancelToken::new(), &emitter,
+        "job-e2e-4",
+        &input,
+        &options,
+        false,
+        &ffmpeg(),
+        &ffprobe(),
+        CancelToken::new(),
+        &emitter,
     )
     .expect("pipeline failed");
 
@@ -210,7 +266,9 @@ fn e2e_split_calculated_against_post_silence_timeline() {
 
 #[test]
 fn e2e_unicode_persian_filename() {
-    if !bin("ffmpeg").is_some() || !bin("ffprobe").is_some() { return; }
+    if !bin("ffmpeg").is_some() || !bin("ffprobe").is_some() {
+        return;
+    }
     let dir = temp_case("unicode");
     let generated = gen_video(&dir, "raw.mp4");
     let input = dir.join("جلسه اول.mp4");
@@ -222,8 +280,14 @@ fn e2e_unicode_persian_filename() {
     };
     let emitter: audio_converter::processing::pipeline::Emitter = Arc::new(|_| {});
     let outcome = pipeline::run_job(
-        "job-e2e-5", &input, &options, false,
-        &ffmpeg(), &ffprobe(), CancelToken::new(), &emitter,
+        "job-e2e-5",
+        &input,
+        &options,
+        false,
+        &ffmpeg(),
+        &ffprobe(),
+        CancelToken::new(),
+        &emitter,
     )
     .expect("pipeline failed");
 
@@ -234,19 +298,30 @@ fn e2e_unicode_persian_filename() {
 
 #[test]
 fn e2e_no_audio_track_fails_gracefully() {
-    if !bin("ffmpeg").is_some() || !bin("ffprobe").is_some() { return; }
+    if !bin("ffmpeg").is_some() || !bin("ffprobe").is_some() {
+        return;
+    }
     let dir = temp_case("noaudio");
     let input = gen_video_silent(&dir, "muted.mp4");
 
     let options = ConversionOptions::default();
     let emitter: audio_converter::processing::pipeline::Emitter = Arc::new(|_| {});
     let err = pipeline::run_job(
-        "job-e2e-6", &input, &options, false,
-        &ffmpeg(), &ffprobe(), CancelToken::new(), &emitter,
+        "job-e2e-6",
+        &input,
+        &options,
+        false,
+        &ffmpeg(),
+        &ffprobe(),
+        CancelToken::new(),
+        &emitter,
     )
     .expect_err("must fail on video-only file");
 
-    assert!(matches!(err, audio_converter::error::AppError::NoAudioTrack(_)));
+    assert!(matches!(
+        err,
+        audio_converter::error::AppError::NoAudioTrack(_)
+    ));
     // And no partial output left behind.
     let leftovers: Vec<_> = std::fs::read_dir(&dir)
         .unwrap()
@@ -259,18 +334,25 @@ fn e2e_no_audio_track_fails_gracefully() {
 
 #[test]
 fn e2e_cancel_kills_running_ffmpeg() {
-    if !bin("ffmpeg").is_some() { return; }
+    if !bin("ffmpeg").is_some() {
+        return;
+    }
     let token = CancelToken::new();
     // Infinite silent source with a huge cap — runs long enough to cancel.
     let spec = RunSpec::new(
         ffmpeg(),
         vec![
             "-hide_banner".into(),
-            "-loglevel".into(), "error".into(),
-            "-f".into(), "lavfi".into(),
-            "-i".into(), "anullsrc=r=44100:cl=mono".into(),
-            "-t".into(), "100000".into(),
-            "-f".into(), "null".into(),
+            "-loglevel".into(),
+            "error".into(),
+            "-f".into(),
+            "lavfi".into(),
+            "-i".into(),
+            "anullsrc=r=44100:cl=mono".into(),
+            "-t".into(),
+            "100000".into(),
+            "-f".into(),
+            "null".into(),
             "-".into(),
         ],
     )
