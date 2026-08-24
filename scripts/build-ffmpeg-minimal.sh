@@ -67,7 +67,7 @@ build_ffmpeg() {
     --enable-libmp3lame --enable-libopus \
     --enable-ffmpeg --enable-ffprobe \
     --extra-cflags="-I$DEPS/include" \
-    --extra-ldflags="-L$DEPS/lib" \
+    --extra-ldflags="-L$DEPS/lib -lm" \
     $asm_flag \
     && make -j"$JOBS" && make install) \
   || { echo "=== FFMPEG BUILD FAILED — config.log tail ==="; tail -40 "$CACHE/ffmpeg/ffbuild/config.log" 2>/dev/null; exit 1; }
