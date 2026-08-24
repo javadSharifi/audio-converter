@@ -37,7 +37,16 @@ build_lame() {
   fetch "https://downloads.sourceforge.net/project/lame/lame/$LAME_VERSION/lame-$LAME_VERSION.tar.gz" "lame.tar.gz"
   rm -rf "$CACHE/lame" && mkdir -p "$CACHE/lame" && tar xzf "$CACHE/lame.tar.gz" -C "$CACHE/lame" --strip-components=1
   (cd "$CACHE/lame" && ./configure --prefix="$DEPS" --disable-shared --enable-static --disable-frontend --disable-debug && make -j"$JOBS" && make install)
+  patch_pc
   echo "lame: built"
+}
+
+# Static libs on glibc need libm at link time; ffmpeg's pkg-config link
+# test drops -lm placed before -lopus under --as-needed, so append it to
+# the pc file's Libs line (keeps -lopus first).
+patch_pc() {
+  sed -i.bak 's/^Libs: \(.*\)$/Libs: \1 -lm/' "$DEPS"/lib/pkgconfig/*.pc 2>/dev/null || true
+  rm -f "$DEPS"/lib/pkgconfig/*.pc.bak 2>/dev/null || true
 }
 
 build_opus() {
@@ -46,6 +55,7 @@ build_opus() {
   rm -rf "$CACHE/opus" && mkdir -p "$CACHE/opus" && tar xzf "$CACHE/opus.tar.gz" -C "$CACHE/opus" --strip-components=1
   (cd "$CACHE/opus" && ./configure --prefix="$DEPS" --disable-shared --enable-static --disable-doc --disable-extra-programs \
     && make -j"$JOBS" && make install)
+  patch_pc
   echo "opus: built"
   echo "--- opus pkgconfig check ---"
   ls -la "$DEPS/lib/pkgconfig/" || true
