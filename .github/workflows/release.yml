@@ -56,6 +56,10 @@ jobs:
         if: runner.os == 'macOS'
         run: brew install lame opus pkg-config
 
+      - name: Install Windows UPX
+        if: runner.os == 'Windows'
+        run: choco install upx --no-progress
+
       - name: Install frontend deps
         run: pnpm install --frozen-lockfile
 

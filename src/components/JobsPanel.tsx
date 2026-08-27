@@ -22,20 +22,23 @@ function JobRow({ job }: { job: QueueItem }): React.JSX.Element {
   const active = job.status === "processing" || job.status === "waiting";
 
   return (
-    <li className="rounded-lg border border-zinc-200 px-3 py-2 dark:border-zinc-700">
-      <div className="flex items-center gap-2 text-sm">
-        <span className={`h-2 w-2 shrink-0 rounded-full ${statusColor(job.status)}`} />
-        <span className="min-w-0 flex-1 truncate" title={job.sourcePath}>{name}</span>
+    <li className="glass-card flex flex-col rounded-2xl p-3.5 transition-all">
+      <div className="flex items-center gap-2.5 text-xs font-semibold">
+        <span className={`h-2.5 w-2.5 shrink-0 rounded-full shadow-sm ${statusColor(job.status)}`} />
+        <span className="min-w-0 flex-1 truncate font-medium text-zinc-800 dark:text-zinc-100" title={job.sourcePath}>
+          {name}
+        </span>
         {job.status === "processing" && job.percent != null && (
-          <span className="shrink-0 tabular-nums text-xs font-medium text-blue-500">
+          <span className="shrink-0 rounded-md bg-blue-500/10 px-2 py-0.5 font-bold tabular-nums text-blue-600 dark:text-blue-400">
             {Math.round(job.percent)}%
           </span>
         )}
-        <span className="shrink-0 text-xs opacity-60">{translate(lang, statusLabelKey(job.status))}</span>
+        <span className="shrink-0 text-zinc-400 dark:text-zinc-500 font-medium">{translate(lang, statusLabelKey(job.status))}</span>
         {active && (
           <button
             onClick={() => void cancelJob(job.id)}
-            className="shrink-0 text-xs text-red-500 hover:underline"
+            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg text-zinc-400 hover:bg-red-500/10 hover:text-red-500"
+            title="Cancel"
           >
             ✕
           </button>
@@ -43,29 +46,29 @@ function JobRow({ job }: { job: QueueItem }): React.JSX.Element {
       </div>
 
       {(job.status === "processing") && (
-        <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-800">
+        <div className="mt-2.5 h-1.5 overflow-hidden rounded-full bg-black/5 dark:bg-white/5">
           <div
             data-testid={`progress-${job.id}`}
-            className="h-full rounded-full bg-orange-500 transition-all duration-300"
+            className="h-full rounded-full bg-gradient-to-r from-orange-500 to-amber-400 transition-all duration-300 shadow-sm shadow-orange-500/30"
             style={{ width: `${job.percent ?? 0}%` }}
           />
         </div>
       )}
 
-      {job.warning && <p className="mt-1 text-xs text-amber-600">{translate(lang, "warnAllSilent")}</p>}
+      {job.warning && <p className="mt-1.5 text-xs text-amber-600 dark:text-amber-400">{translate(lang, "warnAllSilent")}</p>}
       {job.error && (
         <>
-          <p className="mt-1 text-xs text-red-500">{job.error}</p>
+          <p className="mt-1.5 text-xs font-medium text-red-500">{job.error}</p>
           {(job.technical || null) && (
             <>
               <button
                 onClick={() => setShowTech((v) => !v)}
-                className="text-xs opacity-50 underline underline-offset-2 hover:opacity-100"
+                className="mt-1 text-xs text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 underline underline-offset-2"
               >
                 {showTech ? translate(lang, "hideDetails") : translate(lang, "showDetails")}
               </button>
               {showTech && (
-                <pre data-testid="tech-details" className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap rounded bg-zinc-100 p-2 text-[11px] dark:bg-zinc-900">
+                <pre data-testid="tech-details" className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap rounded-xl border border-black/5 bg-black/[0.03] p-2.5 text-[10px] text-zinc-600 dark:border-white/5 dark:bg-black/40 dark:text-zinc-300">
                   {job.technical}
                 </pre>
               )}
@@ -96,7 +99,7 @@ export function JobsPanel(): React.JSX.Element | null {
 
   if (list.length === 0) {
     return (
-      <p className="py-6 text-center text-sm opacity-40" data-testid="queue-empty">
+      <p className="py-4 text-center text-xs font-medium text-zinc-400" data-testid="queue-empty">
         {translate(lang, "queueEmpty")}
       </p>
     );
@@ -110,50 +113,56 @@ export function JobsPanel(): React.JSX.Element | null {
   const anyActive = active > 0;
 
   return (
-    <section className="flex flex-col gap-3" data-testid="jobs-panel">
-      <div className="flex items-center justify-between gap-2">
-        {/* Compact per-status counters instead of a single "X of Y" line. */}
-        <div className="flex items-center gap-3 text-xs tabular-nums">
-          <span className="flex items-center gap-1.5" title={translate(lang, "statusCompleted")}>
-            <span className="h-2 w-2 rounded-full bg-emerald-500" />
+    <section className="glass-panel flex flex-col gap-4 rounded-3xl p-5 md:p-6 shadow-sm" data-testid="jobs-panel">
+      <div className="flex items-center justify-between gap-2 border-b border-black/[0.05] pb-3 dark:border-white/[0.05]">
+        {/* Compact per-status counters */}
+        <div className="flex items-center gap-3 text-xs font-semibold tabular-nums">
+          <span className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400" title={translate(lang, "statusCompleted")}>
+            <span className="h-2 w-2 rounded-full bg-emerald-500 shadow-sm shadow-emerald-500/50" />
             {done}/{total}
           </span>
           {active > 0 && (
-            <span className="flex items-center gap-1.5 text-blue-500" title={translate(lang, "statusProcessing")}>
-              <span className="h-2 w-2 animate-pulse rounded-full bg-blue-500" />
+            <span className="flex items-center gap-1.5 text-blue-600 dark:text-blue-400" title={translate(lang, "statusProcessing")}>
+              <span className="h-2 w-2 animate-pulse rounded-full bg-blue-500 shadow-sm shadow-blue-500/50" />
               {active}
             </span>
           )}
           {failed > 0 && (
-            <span className="flex items-center gap-1.5 text-red-500" title={translate(lang, "statusFailed")}>
-              <span className="h-2 w-2 rounded-full bg-red-500" />
+            <span className="flex items-center gap-1.5 text-red-600 dark:text-red-400" title={translate(lang, "statusFailed")}>
+              <span className="h-2 w-2 rounded-full bg-red-500 shadow-sm shadow-red-500/50" />
               {failed}
             </span>
           )}
         </div>
         <div className="flex gap-2 text-xs">
           {anyActive && (
-            <button onClick={() => void cancelAll()} className="rounded-lg border border-zinc-300 px-2 py-1 hover:border-red-400 hover:text-red-500 dark:border-zinc-700">
+            <button
+              onClick={() => void cancelAll()}
+              className="rounded-xl border border-red-500/30 px-3 py-1 text-xs font-semibold text-red-500 hover:bg-red-500/10 active:scale-95"
+            >
               {translate(lang, "cancelAll")}
             </button>
           )}
           {!anyActive && (
-            <button onClick={() => void clearFinishedJobs()} className="opacity-60 hover:opacity-100">
+            <button
+              onClick={() => void clearFinishedJobs()}
+              className="text-xs font-semibold text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-white"
+            >
               {translate(lang, "clearFinished")}
             </button>
           )}
         </div>
       </div>
 
-      <div className="h-2 overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-800">
+      <div className="relative h-2 overflow-hidden rounded-full bg-black/5 dark:bg-white/5">
         <div
           data-testid="overall-progress"
-          className="h-full rounded-full bg-gradient-to-r from-orange-500 to-amber-400 transition-all duration-500"
+          className="h-full rounded-full bg-gradient-to-r from-orange-500 via-amber-400 to-orange-500 transition-all duration-500 shadow-sm shadow-orange-500/30"
           style={{ width: `${overall}%` }}
         />
       </div>
 
-      <ul className="flex max-h-96 flex-col gap-2 overflow-y-auto pe-1">
+      <ul className="flex max-h-96 flex-col gap-2.5 overflow-y-auto pe-1">
         {list.map((j) => (
           <JobRow key={j.id} job={j} />
         ))}

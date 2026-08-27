@@ -21,24 +21,23 @@ import type { InputFile } from "../types";
 
 type DragTarget = "start" | "end" | null;
 
-const HANDLE_HIT_PX = 18;
-const CANVAS_H = 96;
+const HANDLE_HIT_PX = 20;
+const CANVAS_H = 104;
 
 interface PaintArgs {
   peaks: [number, number][];
   duration: number;
   selStart: number | null;
   selEnd: number | null;
-  rtl: boolean;
   playTime: number | null;
 }
 
 function drawWaveform(canvas: HTMLCanvasElement, args: PaintArgs): void {
-  const { peaks, duration, selStart, selEnd, rtl, playTime } = args;
+  const { peaks, duration, selStart, selEnd, playTime } = args;
   const dpr = window.devicePixelRatio || 1;
   const w = canvas.clientWidth;
   if (w === 0) return;
-  if (canvas.width !== Math.round(w * dpr)) {
+  if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(CANVAS_H * dpr)) {
     canvas.width = Math.round(w * dpr);
     canvas.height = Math.round(CANVAS_H * dpr);
   }
@@ -47,10 +46,10 @@ function drawWaveform(canvas: HTMLCanvasElement, args: PaintArgs): void {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, w, CANVAS_H);
 
-  // x position for a time t, honoring RTL canvases.
+  // x position for a time t (strictly left-to-right chronological).
   const xOf = (t: number) => {
     const frac = duration > 0 ? Math.min(1, Math.max(0, t / duration)) : 0;
-    return rtl ? w - frac * w : frac * w;
+    return frac * w;
   };
 
   const mid = CANVAS_H / 2;
@@ -59,52 +58,106 @@ function drawWaveform(canvas: HTMLCanvasElement, args: PaintArgs): void {
   const lo = Math.min(sX, eX);
   const hi = Math.max(sX, eX);
 
-  // Dimmed regions outside the selection + selected band highlight.
-  ctx.fillStyle = "rgba(120,120,130,0.16)";
+  // Selected background highlight
+  const grad = ctx.createLinearGradient(0, 0, 0, CANVAS_H);
+  grad.addColorStop(0, "rgba(249, 115, 22, 0.18)");
+  grad.addColorStop(1, "rgba(249, 115, 22, 0.04)");
+  ctx.fillStyle = grad;
+  ctx.fillRect(lo, 0, hi - lo, CANVAS_H);
+
+  // Dimmed regions outside selection
+  ctx.fillStyle = "rgba(10, 10, 15, 0.35)";
   ctx.fillRect(0, 0, lo, CANVAS_H);
   ctx.fillRect(hi, 0, w - hi, CANVAS_H);
-  ctx.fillStyle = "rgba(249,115,22,0.10)";
-  ctx.fillRect(lo, 0, hi - lo, CANVAS_H);
-  ctx.strokeStyle = "rgba(249,115,22,0.55)";
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.moveTo(lo + 0.5, 0);
-  ctx.lineTo(lo + 0.5, CANVAS_H);
-  ctx.moveTo(hi - 0.5, 0);
-  ctx.lineTo(hi - 0.5, CANVAS_H);
-  ctx.stroke();
 
-  // Waveform bars.
+  // Waveform bars
   const n = peaks.length;
   if (n > 0 && w > 0) {
     const barW = w / n;
     for (let i = 0; i < n; i++) {
-      const cx = rtl ? w - (i + 0.5) * barW : (i + 0.5) * barW;
+      const cx = (i + 0.5) * barW;
       const inside = cx >= lo && cx <= hi;
       const [mn, mx] = peaks[i];
-      const yTop = mid - Math.abs(mx) * (mid - 6);
-      const yBot = mid - Math.abs(mn) * (mid - 6);
-      ctx.fillStyle = inside ? "#f97316" : "rgba(140,140,150,0.45)";
-      const bw = Math.max(barW * 0.85, 1);
-      ctx.fillRect(cx - bw / 2, yTop, bw, Math.max(yBot - yTop, 1.25));
+      const hMax = mid - 10;
+      const yTop = mid - Math.abs(mx) * hMax;
+      const yBot = mid + Math.abs(mn) * hMax;
+      const barHeight = Math.max(yBot - yTop, 2.5);
+
+      ctx.fillStyle = inside ? "#f97316" : "rgba(150, 150, 165, 0.35)";
+      const bw = Math.max(barW * 0.75, 1.5);
+      
+      // Draw rounded capsule bar
+      ctx.beginPath();
+      const r = Math.min(bw / 2, 2);
+      ctx.roundRect ? ctx.roundRect(cx - bw / 2, yTop, bw, barHeight, r) : ctx.rect(cx - bw / 2, yTop, bw, barHeight);
+      ctx.fill();
     }
   }
 
-  // Playhead.
+  // Draw Handle Lines & Grips
+  const drawHandle = (x: number, isLeft: boolean) => {
+    // Vertical luminous line
+    ctx.strokeStyle = "#f97316";
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x, CANVAS_H);
+    ctx.stroke();
+
+    // iOS style handle pill grip at center
+    const gripW = 10;
+    const gripH = 34;
+    const gripX = isLeft ? x - gripW + 1 : x - 1;
+    const gripY = mid - gripH / 2;
+
+    ctx.fillStyle = "#f97316";
+    ctx.shadowColor = "rgba(249, 115, 22, 0.4)";
+    ctx.shadowBlur = 8;
+    ctx.beginPath();
+    if (ctx.roundRect) {
+      ctx.roundRect(gripX, gripY, gripW, gripH, 5);
+    } else {
+      ctx.rect(gripX, gripY, gripW, gripH);
+    }
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    // Inner grip line
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(gripX + gripW / 2 - 0.75, gripY + 8, 1.5, gripH - 16);
+  };
+
+  if (selStart != null || selEnd != null) {
+    drawHandle(lo, true);
+    drawHandle(hi, false);
+  }
+
+  // Playhead with top triangle indicator
   if (playTime != null && duration > 0) {
     const px = xOf(playTime);
-    ctx.strokeStyle = "#ef4444";
-    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = 2;
+    ctx.shadowColor = "rgba(0, 0, 0, 0.5)";
+    ctx.shadowBlur = 4;
     ctx.beginPath();
     ctx.moveTo(px, 0);
     ctx.lineTo(px, CANVAS_H);
     ctx.stroke();
+
+    // Top triangle badge
+    ctx.fillStyle = "#ffffff";
+    ctx.beginPath();
+    ctx.moveTo(px - 5, 0);
+    ctx.lineTo(px + 5, 0);
+    ctx.lineTo(px, 7);
+    ctx.closePath();
+    ctx.fill();
+    ctx.shadowBlur = 0;
   }
 }
 
 export function TrimEditor({ file }: { file: InputFile }): React.JSX.Element | null {
   const lang = useAppStore((s) => s.lang);
-  const rtl = lang === "fa";
   const setTrim = useAppStore((s) => s.setTrim);
   const pushToast = useAppStore((s) => s.pushToast);
 
@@ -170,10 +223,9 @@ export function TrimEditor({ file }: { file: InputFile }): React.JSX.Element | n
       duration,
       selStart,
       selEnd,
-      rtl,
       playTime: playTimeRef.current,
     });
-  }, [duration, peaks, rtl, selEnd, selStart]);
+  }, [duration, peaks, selEnd, selStart]);
 
   useEffect(() => {
     paint(); // immediate repaint on state change
@@ -220,9 +272,9 @@ export function TrimEditor({ file }: { file: InputFile }): React.JSX.Element | n
       if (!wrap || duration <= 0) return 0;
       const rect = wrap.getBoundingClientRect();
       const frac = (clientX - rect.left) / rect.width;
-      return clampT((rtl ? 1 - frac : frac) * duration);
+      return clampT(frac * duration);
     },
-    [clampT, duration, rtl],
+    [clampT, duration],
   );
 
   /** Which bound is nearest to pixel x? Mirrors drawn handle positions. */
@@ -232,10 +284,7 @@ export function TrimEditor({ file }: { file: InputFile }): React.JSX.Element | n
       if (!wrap || duration <= 0) return null;
       const rect = wrap.getBoundingClientRect();
       const px = clientX - rect.left;
-      const toPx = (t: number) => {
-        const frac = t / duration;
-        return rtl ? rect.width - frac * rect.width : frac * rect.width;
-      };
+      const toPx = (t: number) => (t / duration) * rect.width;
       const sx = selStart != null ? toPx(selStart) : null;
       const ex = selEnd != null ? toPx(selEnd) : null;
       const ds = sx != null ? Math.abs(px - sx) : Infinity;
@@ -244,7 +293,7 @@ export function TrimEditor({ file }: { file: InputFile }): React.JSX.Element | n
       if (de < HANDLE_HIT_PX && de < ds) return "end";
       return null;
     },
-    [duration, rtl, selEnd, selStart],
+    [duration, selEnd, selStart],
   );
 
   const applyBound = useCallback(
@@ -373,16 +422,20 @@ export function TrimEditor({ file }: { file: InputFile }): React.JSX.Element | n
     stopAudition();
   }, [file.path, setTrim, stopAudition]);
 
-  // One-click presets: shave 10 seconds off either end.
+  // One-click presets: Select first 10 seconds or last 10 seconds
   const cutLast10 = useCallback(() => {
-    if (duration < 10.05) return;
-    applyBound("end", duration - 10);
-  }, [applyBound, duration]);
+    if (duration <= 0) return;
+    const start = Math.max(0, duration - 10);
+    setTrim(file.path, "trimStartSecs", start);
+    setTrim(file.path, "trimEndSecs", duration);
+  }, [duration, file.path, setTrim]);
 
   const cutFirst10 = useCallback(() => {
-    if (duration < 10.05) return;
-    applyBound("start", 10);
-  }, [applyBound, duration]);
+    if (duration <= 0) return;
+    const end = Math.min(10, duration);
+    setTrim(file.path, "trimStartSecs", 0);
+    setTrim(file.path, "trimEndSecs", end);
+  }, [duration, file.path, setTrim]);
 
   const commitText = (field: "trimStartSecs" | "trimEndSecs", raw: string) => {
     if (raw.trim() === "") {
@@ -402,44 +455,54 @@ export function TrimEditor({ file }: { file: InputFile }): React.JSX.Element | n
   const selLen = Math.max(0, (selEnd ?? duration) - (selStart ?? 0));
 
   return (
-    <div className="mt-2 rounded-xl border border-zinc-200 p-3 dark:border-zinc-700">
-      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-        <span className="text-xs font-medium opacity-70">
-          {translate(lang, "trimTitle")}
-        </span>
-        <div className="flex items-center gap-1.5">
+    <div className="glass-card mt-3 flex flex-col gap-3.5 rounded-2xl p-4 md:p-5 border border-black/5 dark:border-white/10 shadow-lg shadow-black/5">
+      {/* Top Toolbar */}
+      <div className="flex flex-wrap items-center justify-between gap-2.5 border-b border-black/[0.04] pb-3 dark:border-white/[0.04]">
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-bold tracking-tight text-zinc-800 dark:text-zinc-100">
+            {translate(lang, "trimTitle")}
+          </span>
+          <span className="rounded-full bg-black/[0.04] px-2 py-0.5 text-[10px] font-semibold text-zinc-500 dark:bg-white/[0.06] dark:text-zinc-400">
+            {formatTimecode(duration)}
+          </span>
+        </div>
+
+        <div className="flex items-center gap-2">
           <button
             onClick={playSelection}
             disabled={!srcUrl}
             data-testid={`trim-play-${file.name}`}
-            className="rounded-md border border-zinc-200 px-2 py-1 text-xs hover:border-orange-400 dark:border-zinc-700 disabled:opacity-40"
+            className="flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-orange-500 to-amber-500 px-3.5 py-1.5 text-xs font-bold text-white shadow-md shadow-orange-500/25 hover:brightness-105 active:scale-95 transition-all disabled:opacity-40"
             aria-label={translate(lang, "trimPlay")}
           >
-            {playing ? "⏸" : "▶"} {translate(lang, "trimPlay")}
+            <span>{playing ? "⏸" : "▶"}</span>
+            <span>{translate(lang, "trimPlay")}</span>
           </button>
+
           {duration >= 10.05 && (
             <>
               <button
                 onClick={cutFirst10}
                 data-testid={`trim-cut-first-${file.name}`}
-                className="rounded-md border border-zinc-200 px-2 py-1 text-xs hover:border-orange-400 dark:border-zinc-700"
+                className="glass-card rounded-xl px-2.5 py-1.5 text-xs font-semibold text-zinc-700 hover:border-orange-400 hover:text-orange-600 dark:text-zinc-300 transition-all active:scale-95"
               >
                 {translate(lang, "trimCutFirst10")}
               </button>
               <button
                 onClick={cutLast10}
                 data-testid={`trim-cut-last-${file.name}`}
-                className="rounded-md border border-zinc-200 px-2 py-1 text-xs hover:border-orange-400 dark:border-zinc-700"
+                className="glass-card rounded-xl px-2.5 py-1.5 text-xs font-semibold text-zinc-700 hover:border-orange-400 hover:text-orange-600 dark:text-zinc-300 transition-all active:scale-95"
               >
                 {translate(lang, "trimCutLast10")}
               </button>
             </>
           )}
+
           {hasSelection && (
             <button
               onClick={clearTrim}
               data-testid={`trim-clear-${file.name}`}
-              className="rounded-md border border-zinc-200 px-2 py-1 text-xs text-red-500 hover:border-red-400 dark:border-zinc-700"
+              className="rounded-xl bg-red-500/10 px-2.5 py-1.5 text-xs font-semibold text-red-500 hover:bg-red-500/20 active:scale-95 transition-all"
             >
               {translate(lang, "trimClear")}
             </button>
@@ -450,67 +513,70 @@ export function TrimEditor({ file }: { file: InputFile }): React.JSX.Element | n
       {/* Waveform surface */}
       <div
         ref={wrapRef}
-        className={`relative select-none ${peaks ? "cursor-crosshair" : ""}`}
-        style={{ height: CANVAS_H }}
+        className={`relative select-none overflow-hidden rounded-2xl bg-black/[0.04] p-1.5 border border-black/5 dark:bg-black/50 dark:border-white/5 ${peaks ? "cursor-ew-resize" : ""}`}
+        style={{ height: CANVAS_H + 12 }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={endDrag}
         onPointerCancel={endDrag}
         data-testid={`trim-editor-${file.name}`}
       >
-        <canvas ref={canvasRef} className="h-full w-full touch-none" />
+        <canvas ref={canvasRef} className="h-full w-full touch-none rounded-xl" />
         {!peaks && !waveErr && (
-          <div className="absolute inset-0 flex items-center justify-center text-xs opacity-50">
+          <div className="absolute inset-0 flex items-center justify-center text-xs font-medium text-zinc-400 animate-pulse">
             {translate(lang, "trimLoading")}
           </div>
         )}
         {waveErr && (
-          <div className="absolute inset-0 flex items-center justify-center text-xs opacity-50">
+          <div className="absolute inset-0 flex items-center justify-center text-xs font-medium text-red-400">
             {translate(lang, "trimWaveError")}
           </div>
         )}
       </div>
 
-      {/* Precision inputs under the waveform */}
-      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2 text-xs">
-        <label className="flex items-center gap-1">
-          <span className="opacity-60">{translate(lang, "trimStart")}</span>
-          <input
-            type="text"
-            defaultValue={selStart != null ? formatTimecode(selStart) : ""}
-            key={`s-${file.path}-${selStart ?? "none"}`}
-            placeholder="0:00.0"
-            data-testid={`trim-start-text-${file.name}`}
-            onBlur={(e) => commitText("trimStartSecs", e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") (e.target as HTMLInputElement).blur();
-            }}
-            className="w-20 rounded-md border border-zinc-200 bg-transparent px-1.5 py-1 tabular-nums dark:border-zinc-700"
-          />
-        </label>
-        <span className="opacity-40">→</span>
-        <label className="flex items-center gap-1">
-          <span className="opacity-60">{translate(lang, "trimEnd")}</span>
-          <input
-            type="text"
-            defaultValue={selEnd != null ? formatTimecode(selEnd) : ""}
-            key={`e-${file.path}-${selEnd ?? "none"}`}
-            placeholder={formatTimecode(duration)}
-            data-testid={`trim-end-text-${file.name}`}
-            onBlur={(e) => commitText("trimEndSecs", e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") (e.target as HTMLInputElement).blur();
-            }}
-            className="w-20 rounded-md border border-zinc-200 bg-transparent px-1.5 py-1 tabular-nums dark:border-zinc-700"
-          />
-        </label>
-        <span className="ms-auto tabular-nums opacity-60">
-          {translate(lang, "trimSelectedDuration")}:{" "}
-          <b className={hasSelection ? "text-orange-500" : ""}>
-            {formatTimecode(selLen)}
-          </b>{" "}
-          / {formatTimecode(duration)}
-        </span>
+      {/* Precision inputs & selected duration footer */}
+      <div className="flex flex-wrap items-center justify-between gap-3 text-xs" dir="ltr">
+        <div className="flex items-center gap-2">
+          <label className="flex items-center gap-1.5">
+            <span className="font-semibold text-zinc-500 dark:text-zinc-400">{translate(lang, "trimStart")}</span>
+            <input
+              type="text"
+              defaultValue={selStart != null ? formatTimecode(selStart) : ""}
+              key={`s-${file.path}-${selStart ?? "none"}`}
+              placeholder="0:00.0"
+              data-testid={`trim-start-text-${file.name}`}
+              onBlur={(e) => commitText("trimStartSecs", e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+              }}
+              className="glass-pill w-20 rounded-xl px-2.5 py-1.5 text-center font-semibold tabular-nums text-zinc-800 dark:text-zinc-200 outline-none"
+            />
+          </label>
+
+          <span className="text-zinc-400">→</span>
+
+          <label className="flex items-center gap-1.5">
+            <span className="font-semibold text-zinc-500 dark:text-zinc-400">{translate(lang, "trimEnd")}</span>
+            <input
+              type="text"
+              defaultValue={selEnd != null ? formatTimecode(selEnd) : ""}
+              key={`e-${file.path}-${selEnd ?? "none"}`}
+              placeholder={formatTimecode(duration)}
+              data-testid={`trim-end-text-${file.name}`}
+              onBlur={(e) => commitText("trimEndSecs", e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+              }}
+              className="glass-pill w-20 rounded-xl px-2.5 py-1.5 text-center font-semibold tabular-nums text-zinc-800 dark:text-zinc-200 outline-none"
+            />
+          </label>
+        </div>
+
+        <div className="flex items-center gap-1.5 rounded-full bg-orange-500/10 px-3 py-1 text-xs font-bold text-orange-600 dark:text-orange-400 tabular-nums">
+          <span>{translate(lang, "trimSelectedDuration")}:</span>
+          <span>{formatTimecode(selLen)}</span>
+          <span className="text-orange-400/60 font-normal">/ {formatTimecode(duration)}</span>
+        </div>
       </div>
 
       {/* Hidden audio element drives audition + selection playback. */}

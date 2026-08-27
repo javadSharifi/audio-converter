@@ -26,15 +26,15 @@ function FileRow({
 
   return (
     <>
-      <tr className="border-b border-zinc-100 dark:border-zinc-800">
-        <td className="max-w-[280px] truncate px-2 py-2" title={file.path}>
+      <tr className="border-b border-black/[0.04] transition-colors hover:bg-black/[0.02] dark:border-white/[0.04] dark:hover:bg-white/[0.02]">
+        <td className="max-w-[280px] truncate px-3 py-2.5" title={file.path}>
           <button
             onClick={onToggle}
             data-testid={`trim-toggle-${file.name}`}
-            className={`me-1 inline-flex h-5 w-5 items-center justify-center rounded-md border align-middle text-[10px] transition-colors ${
+            className={`me-2 inline-flex h-6 w-6 items-center justify-center rounded-lg border align-middle text-[11px] font-medium transition-all ${
               expanded
-                ? "border-orange-400 bg-orange-500/10 text-orange-500"
-                : "border-zinc-300 text-zinc-400 hover:border-orange-400 hover:text-orange-500 dark:border-zinc-600"
+                ? "border-orange-500 bg-orange-500 text-white shadow-sm shadow-orange-500/30"
+                : "border-black/10 bg-white/60 text-zinc-500 hover:border-orange-400 hover:text-orange-500 dark:border-white/10 dark:bg-zinc-800/60 dark:text-zinc-400"
             }`}
             aria-label={`${translate(lang, "trimEdit")} ${file.name}`}
             aria-expanded={expanded}
@@ -43,25 +43,29 @@ function FileRow({
             ✂
           </button>
           {badge && (
-            <span className="me-0.5 align-middle text-[10px] opacity-50" title="audio">
+            <span className="me-1 inline-block rounded bg-orange-500/10 px-1 py-0.5 align-middle text-[10px] font-bold text-orange-600 dark:text-orange-400" title="audio">
               {badge}
             </span>
           )}
-          <span className="align-middle">{file.name}</span>
+          <span className="align-middle font-medium text-zinc-800 dark:text-zinc-200">{file.name}</span>
           {file.error && (
-            <span className="block text-xs text-red-500">{file.error}</span>
+            <span className="block text-xs font-medium text-red-500">{file.error}</span>
           )}
         </td>
-        <td className="px-2 py-2 text-sm opacity-70">{formatBytes(file.sizeBytes)}</td>
-        <td className="px-2 py-2 text-sm opacity-70">
+        <td className="px-3 py-2.5 text-xs font-medium text-zinc-500 dark:text-zinc-400">{formatBytes(file.sizeBytes)}</td>
+        <td className="px-3 py-2.5 text-xs font-medium text-zinc-500 dark:text-zinc-400">
           {file.hasAudio ? formatDuration(file.durationSecs) : "—"}
         </td>
-        <td className="px-2 py-2 text-xs uppercase opacity-50">{file.formatName.split(",")[0]}</td>
-        <td className="px-2 py-2">
+        <td className="px-3 py-2.5">
+          <span className="rounded-md bg-black/[0.04] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-600 dark:bg-white/[0.06] dark:text-zinc-300">
+            {file.formatName.split(",")[0]}
+          </span>
+        </td>
+        <td className="px-3 py-2.5">
           {(file.trimStartSecs != null || file.trimEndSecs != null) ? (
             <span
               data-testid={`trim-chip-${file.name}`}
-              className="rounded-full bg-orange-500/10 px-2 py-0.5 text-[11px] font-medium tabular-nums text-orange-600 dark:text-orange-400"
+              className="rounded-full bg-orange-500/10 px-2.5 py-0.5 text-[11px] font-semibold tabular-nums text-orange-600 dark:text-orange-400"
             >
               {formatDuration(file.trimStartSecs ?? 0)} –{" "}
               {formatDuration(
@@ -69,13 +73,13 @@ function FileRow({
               )}
             </span>
           ) : (
-            <span className="text-xs opacity-40">{translate(lang, "trimFullFile")}</span>
+            <span className="text-xs text-zinc-400 dark:text-zinc-500">{translate(lang, "trimFullFile")}</span>
           )}
         </td>
-        <td className="px-2 py-2">
+        <td className="px-3 py-2.5 text-end">
           <button
             onClick={() => removeFile(file.path)}
-            className="rounded-md px-2 py-1 text-xs opacity-60 hover:bg-zinc-100 hover:opacity-100 dark:hover:bg-zinc-800"
+            className="flex h-7 w-7 items-center justify-center rounded-lg text-zinc-400 transition-colors hover:bg-red-500/10 hover:text-red-500"
             aria-label={translate(lang, "removeFile")}
           >
             ✕
@@ -84,8 +88,8 @@ function FileRow({
       </tr>
       {/* Editor opens directly beneath its row. */}
       {expanded && (
-        <tr className="border-b border-zinc-100 dark:border-zinc-800">
-          <td colSpan={6} className="px-2 pb-3 pt-1">
+        <tr className="border-b border-black/[0.04] dark:border-white/[0.04]">
+          <td colSpan={6} className="px-3 pb-4 pt-1">
             <TrimEditor key={file.path} file={file} />
           </td>
         </tr>
@@ -108,22 +112,22 @@ function MobileFileCard({
   const badge = kindBadge(file);
 
   return (
-    <div className="flex flex-col rounded-xl border border-zinc-200 bg-white p-3.5 shadow-sm dark:border-zinc-800 dark:bg-zinc-900/70">
+    <div className="glass-card flex flex-col rounded-2xl p-4 transition-all">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5 font-medium text-sm">
+          <div className="flex items-center gap-1.5 font-semibold text-sm text-zinc-800 dark:text-zinc-100">
             {badge && (
-              <span className="shrink-0 rounded bg-orange-500/10 px-1 py-0.5 text-[11px] font-bold text-orange-600 dark:text-orange-400">
+              <span className="shrink-0 rounded-md bg-orange-500/10 px-1.5 py-0.5 text-[11px] font-bold text-orange-600 dark:text-orange-400">
                 {badge}
               </span>
             )}
             <span className="truncate" title={file.path}>{file.name}</span>
           </div>
           {file.error && (
-            <span className="mt-1 block text-xs text-red-500">{file.error}</span>
+            <span className="mt-1 block text-xs font-medium text-red-500">{file.error}</span>
           )}
-          <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs opacity-70">
-            <span className="rounded bg-zinc-100 px-1.5 py-0.5 uppercase dark:bg-zinc-800">
+          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400 font-medium">
+            <span className="rounded-md bg-black/[0.04] px-1.5 py-0.5 text-[10px] font-bold uppercase dark:bg-white/[0.06]">
               {file.formatName.split(",")[0]}
             </span>
             <span>{formatBytes(file.sizeBytes)}</span>
@@ -134,21 +138,21 @@ function MobileFileCard({
 
         <button
           onClick={() => removeFile(file.path)}
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-zinc-400 hover:bg-zinc-100 hover:text-red-500 dark:hover:bg-zinc-800"
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-zinc-400 transition-colors hover:bg-red-500/10 hover:text-red-500"
           aria-label={translate(lang, "removeFile")}
         >
           ✕
         </button>
       </div>
 
-      <div className="mt-3 flex items-center justify-between border-t border-zinc-100 pt-2.5 dark:border-zinc-800">
+      <div className="mt-3.5 flex items-center justify-between border-t border-black/[0.04] pt-3 dark:border-white/[0.04]">
         <button
           onClick={onToggle}
           data-testid={`trim-toggle-mobile-${file.name}`}
-          className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors ${
+          className={`inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-semibold transition-all ${
             expanded
-              ? "bg-orange-500 text-white"
-              : "border border-zinc-200 bg-zinc-50 text-zinc-700 hover:border-orange-400 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+              ? "bg-gradient-to-r from-orange-500 to-amber-500 text-white shadow-sm shadow-orange-500/30"
+              : "border border-black/5 bg-black/[0.02] text-zinc-700 hover:border-orange-400 dark:border-white/5 dark:bg-white/[0.04] dark:text-zinc-300"
           }`}
         >
           <span>✂</span>
@@ -158,7 +162,7 @@ function MobileFileCard({
         <div>
           {(file.trimStartSecs != null || file.trimEndSecs != null) ? (
             <span
-              className="rounded-full bg-orange-500/10 px-2.5 py-1 text-[11px] font-medium tabular-nums text-orange-600 dark:text-orange-400"
+              className="rounded-full bg-orange-500/10 px-2.5 py-1 text-[11px] font-semibold tabular-nums text-orange-600 dark:text-orange-400"
             >
               {formatDuration(file.trimStartSecs ?? 0)} –{" "}
               {formatDuration(
@@ -166,13 +170,13 @@ function MobileFileCard({
               )}
             </span>
           ) : (
-            <span className="text-xs opacity-40">{translate(lang, "trimFullFile")}</span>
+            <span className="text-xs text-zinc-400">{translate(lang, "trimFullFile")}</span>
           )}
         </div>
       </div>
 
       {expanded && (
-        <div className="mt-3 border-t border-zinc-100 pt-3 dark:border-zinc-800">
+        <div className="mt-3.5 border-t border-black/[0.04] pt-3.5 dark:border-white/[0.04]">
           <TrimEditor key={file.path} file={file} />
         </div>
       )}
@@ -193,12 +197,12 @@ export function FileList(): React.JSX.Element | null {
   return (
     <div className="flex flex-col gap-3">
       {/* Mobile Card List (< md) */}
-      <div className="flex flex-col gap-2.5 md:hidden">
+      <div className="flex flex-col gap-3 md:hidden">
         <div className="flex items-center justify-between px-1">
-          <h2 className="text-sm font-semibold">{translate(lang, "colFile")} ({files.length})</h2>
+          <h2 className="text-sm font-bold tracking-tight text-zinc-800 dark:text-zinc-200">{translate(lang, "colFile")} ({files.length})</h2>
           <button
             onClick={clearFiles}
-            className="text-xs text-red-500/80 hover:text-red-500 font-medium"
+            className="text-xs font-semibold text-red-500/80 hover:text-red-500"
           >
             {translate(lang, "clearList")}
           </button>
@@ -214,24 +218,24 @@ export function FileList(): React.JSX.Element | null {
       </div>
 
       {/* Desktop Table (>= md) */}
-      <div className="hidden overflow-hidden rounded-xl border border-zinc-200 dark:border-zinc-700 md:block">
-        <div className="flex items-center justify-between border-b border-zinc-200 bg-zinc-50 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900">
-          <h2 className="text-sm font-semibold">{translate(lang, "colFile")} ({files.length})</h2>
+      <div className="glass-panel hidden overflow-hidden rounded-3xl md:block">
+        <div className="flex items-center justify-between border-b border-black/[0.05] bg-black/[0.02] px-4 py-3 dark:border-white/[0.05] dark:bg-white/[0.02]">
+          <h2 className="text-sm font-bold tracking-tight text-zinc-800 dark:text-zinc-200">{translate(lang, "colFile")} ({files.length})</h2>
           <button
             onClick={clearFiles}
-            className="text-xs opacity-60 hover:text-red-500 hover:opacity-100"
+            className="text-xs font-semibold text-red-500/80 hover:text-red-500"
           >
             {translate(lang, "clearList")}
           </button>
         </div>
         <table className="w-full table-fixed" data-testid="file-list">
           <thead>
-            <tr className="text-start text-xs uppercase tracking-wide opacity-40">
-              <th className="px-2 py-1.5 text-start font-medium">{translate(lang, "colFile")}</th>
-              <th className="w-20 px-2 py-1.5 text-start font-medium">{translate(lang, "colSize")}</th>
-              <th className="w-24 px-2 py-1.5 text-start font-medium">{translate(lang, "colDuration")}</th>
-              <th className="w-16 px-2 py-1.5 text-start font-medium">{translate(lang, "colFormat")}</th>
-              <th className="w-32 px-2 py-1.5 text-start font-medium">{translate(lang, "trimRange")}</th>
+            <tr className="border-b border-black/[0.04] text-start text-[11px] font-bold uppercase tracking-wider text-zinc-400 dark:border-white/[0.04] dark:text-zinc-500">
+              <th className="px-3 py-2 text-start font-semibold">{translate(lang, "colFile")}</th>
+              <th className="w-20 px-3 py-2 text-start font-semibold">{translate(lang, "colSize")}</th>
+              <th className="w-24 px-3 py-2 text-start font-semibold">{translate(lang, "colDuration")}</th>
+              <th className="w-16 px-3 py-2 text-start font-semibold">{translate(lang, "colFormat")}</th>
+              <th className="w-32 px-3 py-2 text-start font-semibold">{translate(lang, "trimRange")}</th>
               <th className="w-10" />
             </tr>
           </thead>
@@ -251,7 +255,7 @@ export function FileList(): React.JSX.Element | null {
       <button
         onClick={() => void pickVideos().then(addPaths)}
         data-testid="add-more"
-        className="flex items-center justify-center gap-1.5 rounded-xl border-2 border-dashed border-zinc-300 py-3 text-sm font-medium opacity-80 transition-colors hover:border-orange-400 hover:text-orange-600 dark:border-zinc-700 dark:hover:text-orange-400 md:self-start md:px-4 md:py-2"
+        className="glass-card flex items-center justify-center gap-2 rounded-2xl py-3 text-xs font-semibold text-zinc-700 transition-all hover:scale-[1.01] hover:border-orange-500/50 hover:text-orange-500 active:scale-[0.99] dark:text-zinc-300 md:self-start md:px-5 md:py-2.5"
       >
         <span>＋</span>
         <span>{translate(lang, "addFiles")}</span>

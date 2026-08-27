@@ -21,21 +21,39 @@ export function DropZone(): React.JSX.Element {
       }}
       onDragLeave={() => setHover(false)}
       data-testid="dropzone"
-      className={`flex flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed px-6 py-10 text-center cursor-pointer transition-colors select-none
+      className={`glass-panel group relative flex min-h-[300px] flex-col items-center justify-center gap-5 rounded-3xl p-8 md:p-12 text-center cursor-pointer transition-all duration-300 select-none overflow-hidden
         ${hover
-          ? "border-orange-400 bg-orange-400/10"
-          : "border-zinc-300 dark:border-zinc-700 hover:border-orange-400/70"}`}
+          ? "scale-[1.01] border-orange-500/80 ring-4 ring-orange-500/20 bg-orange-500/[0.08]"
+          : "hover:scale-[1.005] hover:border-orange-500/40"}`}
     >
-      <svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-        strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden
-        className={probing ? "animate-pulse text-orange-500" : "text-zinc-400"}>
-        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-        <polyline points="17 8 12 3 7 8" />
-        <line x1="12" y1="3" x2="12" y2="15" />
-      </svg>
-      <p className="text-base font-medium">{translate(lang, "dropHere")}</p>
-      <p className="text-sm opacity-60">{translate(lang, "orBrowse")}</p>
-      <p className="text-xs opacity-40">{translate(lang, "supported")}</p>
+      {/* Ambient background glow inside card */}
+      <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-orange-500/[0.04] via-transparent to-transparent opacity-60 group-hover:opacity-100 transition-opacity" />
+
+      {/* Prominent Glowing Upload & Audio Icon */}
+      <div className={`relative flex h-20 w-20 items-center justify-center rounded-3xl bg-gradient-to-tr from-orange-500 via-amber-400 to-orange-400 text-white shadow-xl shadow-orange-500/30 transition-transform duration-300 group-hover:scale-105 ${probing ? "animate-pulse" : ""}`}>
+        <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+          <polyline points="17 8 12 3 7 8" />
+          <line x1="12" y1="3" x2="12" y2="15" />
+        </svg>
+      </div>
+
+      <div className="space-y-1.5 z-10">
+        <p className="text-lg font-bold tracking-tight text-zinc-900 dark:text-white md:text-xl">
+          {translate(lang, "dropHere")}
+        </p>
+        <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
+          {translate(lang, "supported")}
+        </p>
+      </div>
+
+      {/* Explicit Stylish Button inside DropZone */}
+      <div className="z-10 mt-1">
+        <span className="inline-flex items-center gap-2 rounded-2xl bg-white/80 dark:bg-zinc-800/80 px-5 py-2.5 text-xs font-bold text-orange-600 dark:text-orange-400 shadow-sm border border-black/5 dark:border-white/10 group-hover:bg-orange-500 group-hover:text-white transition-all">
+          <span>＋</span>
+          <span>{translate(lang, "orBrowse")}</span>
+        </span>
+      </div>
     </div>
   );
 }

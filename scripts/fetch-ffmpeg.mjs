@@ -38,30 +38,52 @@ async function download(url, dest) {
   await pipeline(res.body, createWriteStream(dest));
 }
 
+function extractZip(zipPath, destDir) {
+  mkdirSync(destDir, { recursive: true });
+  if (process.platform === "win32") {
+    try {
+      execSync(`tar -xf ${JSON.stringify(zipPath)} -C ${JSON.stringify(destDir)}`, { stdio: "inherit" });
+    } catch {
+      execSync(`powershell -Command "Expand-Archive -Path '${zipPath}' -DestinationPath '${destDir}' -Force"`, { stdio: "inherit" });
+    }
+  } else {
+    try {
+      execSync(`unzip -q -o ${JSON.stringify(zipPath)} -d ${JSON.stringify(destDir)}`);
+    } catch {
+      execSync(`tar -xf ${JSON.stringify(zipPath)} -C ${JSON.stringify(destDir)}`);
+    }
+  }
+}
+
 async function btbNWin() {
   const tmp = await mkdtemp(path.join(os.tmpdir(), "ff-btbn-"));
   const url =
     "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-lgpl.zip";
   const zip = path.join(tmp, "ff.zip");
   await download(url, zip);
-  execSync(`unzip -q -o ${JSON.stringify(zip)} -d ${JSON.stringify(tmp)}`);
+  extractZip(zip, tmp);
   const ffmpeg = path.join(tmp, "ffmpeg-master-latest-win64-lgpl", "bin", "ffmpeg.exe");
   const ffprobe = path.join(tmp, "ffmpeg-master-latest-win64-lgpl", "bin", "ffprobe.exe");
 
-  // Compress Windows binaries with UPX to reduce size by ~75%
+  // Compress Windows binaries with UPX (LZMA) to reduce size by ~75%
+  let upxExe = "upx";
   try {
+    // Check if system has upx installed
+    execSync("upx --version", { stdio: "ignore" });
+  } catch {
+    // Download portable UPX
     const upxUrl = "https://github.com/upx/upx/releases/download/v4.2.4/upx-4.2.4-win64.zip";
     const upxZip = path.join(tmp, "upx.zip");
     await download(upxUrl, upxZip);
-    execSync(`unzip -q -o ${JSON.stringify(upxZip)} -d ${JSON.stringify(tmp)}`);
-    const upxExe = path.join(tmp, "upx-4.2.4-win64", "upx.exe");
-    for (const binPath of [ffmpeg, ffprobe]) {
-      console.log(`compressing ${binPath} with UPX...`);
-      execSync(`${JSON.stringify(upxExe)} --best --lzma -q ${JSON.stringify(binPath)}`, { stdio: "inherit" });
-    }
-  } catch (err) {
-    console.warn("UPX compression skipped or failed:", err.message);
+    extractZip(upxZip, tmp);
+    upxExe = path.join(tmp, "upx-4.2.4-win64", "upx.exe");
   }
+
+  console.log(`compressing ${ffmpeg} with UPX...`);
+  execSync(`${JSON.stringify(upxExe)} --best --lzma ${JSON.stringify(ffmpeg)}`, { stdio: "inherit" });
+
+  console.log(`compressing ${ffprobe} with UPX...`);
+  execSync(`${JSON.stringify(upxExe)} --best --lzma ${JSON.stringify(ffprobe)}`, { stdio: "inherit" });
 
   return { ffmpeg, ffprobe };
 }
