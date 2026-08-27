@@ -1,6 +1,6 @@
 # 🤖 Agent Handoff & Codebase Architecture Guide
-> **Project:** Audio Converter (Desktop Video & Audio to Audio Transcoder)  
-> **Version:** 1.0.9  
+> **Project:** Audio Converter (Desktop & Mobile Video/Audio to Audio Transcoder)  
+> **Version:** 1.1.0  
 > **Target Audience:** AI Agents, LLM Coding Assistants, Human Maintainers  
 > **Stack:** Tauri v2 + React 19 + TypeScript + Zustand + Tailwind CSS v4 + Rust (2021) + Bundled FFmpeg 7.1.1 (LGPL)
 

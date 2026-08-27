@@ -33,9 +33,9 @@ describe("FileList", () => {
     });
     render(<FileList />);
     expect(screen.getByTestId("file-list")).toBeTruthy();
-    expect(screen.getByText("one.mp4")).toBeTruthy();
-    expect(screen.getByText("two.mkv")).toBeTruthy();
-    expect(screen.getByText("File (2)")).toBeTruthy();
+    expect(screen.getAllByText("one.mp4").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("two.mkv").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("File (2)").length).toBeGreaterThan(0);
   });
 
   it("renders nothing when store empty", () => {
@@ -46,7 +46,7 @@ describe("FileList", () => {
   it("remove button drops the row", () => {
     useAppStore.setState({ files: [meta("/a/one.mp4")] });
     render(<FileList />);
-    fireEvent.click(screen.getByLabelText("Remove"));
+    fireEvent.click(screen.getAllByLabelText("Remove")[0]);
     expect(useAppStore.getState().files.length).toBe(0);
   });
 });

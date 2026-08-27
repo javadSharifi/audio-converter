@@ -98,15 +98,16 @@ export default function App(): React.JSX.Element {
   useDirection(lang);
 
   return (
-    <div className="flex h-screen flex-col bg-zinc-50 text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100">
+    <div className="flex h-screen flex-col bg-zinc-50 text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100 select-none">
       <HeaderBar />
-      <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-5 overflow-y-auto px-5 py-5">
+      <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-4 overflow-y-auto px-3.5 py-4 md:gap-5 md:px-5 md:py-5">
         {/* Drop zone only until the first file lands — then the list takes over. */}
         {files.length === 0 && <DropZone />}
         <FileList />
         <OptionsPanel />
         <JobsPanel />
-      </main>      <footer className="border-t border-zinc-200 px-5 py-4 dark:border-zinc-800">
+      </main>
+      <footer className="border-t border-zinc-200 bg-white/80 backdrop-blur-md px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom,0px))] dark:border-zinc-800 dark:bg-zinc-950/80 md:px-5 md:py-4">
         <div className="mx-auto w-full max-w-5xl">
           <StartBar />
         </div>

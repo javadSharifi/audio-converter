@@ -23,7 +23,7 @@ export function HeaderBar(): React.JSX.Element {
   };
 
   return (
-    <header className="flex items-center justify-between border-b border-zinc-200 px-5 py-3 dark:border-zinc-800">
+    <header className="flex items-center justify-between border-b border-zinc-200 bg-white/50 backdrop-blur-md px-3.5 py-3 pt-[calc(0.75rem+env(safe-area-inset-top,0px))] dark:border-zinc-800 dark:bg-zinc-950/50 md:px-5">
       <div className="flex items-center gap-2">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden className="text-orange-500">
           <rect x="2" y="9" width="3" height="6" rx="1.5" />
@@ -31,7 +31,7 @@ export function HeaderBar(): React.JSX.Element {
           <rect x="12" y="2" width="3" height="20" rx="1.5" />
           <rect x="17" y="7" width="3" height="10" rx="1.5" />
         </svg>
-        <h1 className="text-base font-bold">{translate(lang, "appTitle")}</h1>
+        <h1 className="text-sm font-bold md:text-base">{translate(lang, "appTitle")}</h1>
         {version && <span className="text-[10px] opacity-40">v{version}</span>}
       </div>
 
