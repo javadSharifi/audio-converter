@@ -12,6 +12,7 @@ import { openPath } from "@tauri-apps/plugin-opener";
 import { listen } from "@tauri-apps/api/event";
 import { isLossy } from "./types";
 import { parseDurationInput } from "./utils/format";
+import { useNativeDragDrop } from "./hooks/useNativeDragDrop";
 import type { QueueItem } from "./types";
 
 function StartBar(): React.JSX.Element {
@@ -19,6 +20,7 @@ function StartBar(): React.JSX.Element {
   const files = useAppStore((s) => s.files);
   const options = useAppStore((s) => s.options);
   const jobs = useAppStore((s) => s.jobs);
+  const starting = useAppStore((s) => s.starting);
   const startQueue = useAppStore((s) => s.startQueue);
   const pushToast = useAppStore((s) => s.pushToast);
 
@@ -30,11 +32,13 @@ function StartBar(): React.JSX.Element {
   const disabled =
     validCount === 0 ||
     busy ||
+    starting ||
     (isLossy(options.format) && options.quality === "custom" && !options.customBitrateKbps) ||
     (options.splitEnabled && parseDurationInput(String(options.splitDurationSecs)) === null) ||
     (options.outputMode === "custom_folder" && !options.customOutputDir);
 
   const onStart = () => {
+    if (disabled) return;
     if (validCount < files.length) pushToast("warning", "errSomeFilesInvalid");
     void startQueue();
   };
@@ -46,7 +50,7 @@ function StartBar(): React.JSX.Element {
       data-testid="start-conversion"
       className="w-full rounded-xl bg-orange-500 py-3 text-sm font-semibold text-white shadow transition-colors hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-40"
     >
-      {busy ? "…" : `▶ ${translate(lang, "startConversion")}`}
+      {busy || starting ? "…" : `▶ ${translate(lang, "startConversion")}`}
     </button>
   );
 }
@@ -55,8 +59,13 @@ export default function App(): React.JSX.Element {
   const lang = useAppStore((s) => s.lang);
   const theme = useAppStore((s) => s.theme);
   const files = useAppStore((s) => s.files);
+  const addPaths = useAppStore((s) => s.addPaths);
   const loadSettings = useAppStore((s) => s.loadSettings);
   const initEventListeners = useAppStore((s) => s.initEventListeners);
+
+  // Window-wide native drop — lives here, not in DropZone, so drag&drop
+  // keeps working after the drop zone unmounts (first file added).
+  useNativeDragDrop(addPaths);
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", resolveTheme(theme) === "dark");

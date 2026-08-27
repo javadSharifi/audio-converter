@@ -8,7 +8,7 @@ use crate::error::{AppError, Result};
 use crate::ffmpeg::probe;
 use crate::ffmpeg::run::{CancelToken, RunSpec};
 use crate::processing::{naming, silence, split};
-use crate::types::{AudioFormat, ConversionOptions, JobEvent, JobStatus};
+use crate::types::{AudioFormat, ConversionOptions, JobEvent, JobStatus, TrimSpec};
 
 /// Thread-safe event sink owned by the queue; cloned into worker threads.
 pub type Emitter = Arc<dyn Fn(JobEvent) + Send + Sync>;
@@ -30,7 +30,7 @@ fn processing_event(
     warning: Option<String>,
 ) -> JobEvent {
     JobEvent {
-        job_id: job_id.to_string(),
+        id: job_id.to_string(),
         source_path: source.to_string_lossy().into_owned(),
         status: JobStatus::Processing,
         percent,
@@ -74,13 +74,19 @@ pub fn encoder_args(format: &AudioFormat, bitrate_kbps: Option<u32>) -> Vec<Stri
 /// Strategy: decode the source exactly once. Silence removal and splitting
 /// happen inside a single `filter_complex`; each part becomes one muxed
 /// output. At most one lossy encode regardless of feature combination.
+///
+/// Trimming: `-ss` goes strictly BEFORE `-i` (input seeking — fast, skips
+/// demux instead of decode); `-to` goes AFTER `-i`. When both are set the
+/// `-to` value is rebased to the post-seek timeline by `TrimSpec`.
 pub fn build_conversion_args(
     source: &Path,
     options: &ConversionOptions,
     parts: &[Vec<silence::Range>],
     outputs: &[PathBuf],
     use_filters: bool,
+    trim: Option<&TrimSpec>,
 ) -> Vec<String> {
+    // Input seeking MUST precede `-i`; output options follow it.
     let mut args: Vec<String> = vec![
         "-hide_banner".into(),
         "-nostdin".into(),
@@ -90,9 +96,17 @@ pub fn build_conversion_args(
         "-progress".into(),
         "pipe:1".into(),
         "-nostats".into(),
-        "-i".into(),
-        source.to_string_lossy().into_owned(),
     ];
+    if let Some(start) = trim.and_then(|t| t.start_time_secs) {
+        args.extend(["-ss".to_string(), format!("{start:.3}")]);
+    }
+    args.extend([
+        "-i".to_string(),
+        source.to_string_lossy().into_owned(),
+    ]);
+    if let Some(to) = trim.and_then(|t| t.effective_to()) {
+        args.extend(["-to".to_string(), format!("{to:.3}")]);
+    }
 
     let bitrate = options.effective_bitrate();
     let mut codec_args = encoder_args(&options.format, bitrate);
@@ -124,7 +138,6 @@ pub fn build_conversion_args(
             "0".to_string(),
         ]);
         args.extend(codec_args);
-        args.push("--".into());
         args.push(outputs[0].to_string_lossy().into_owned());
         return args;
     }
@@ -150,11 +163,13 @@ pub fn build_conversion_args(
         args.extend([
             "-map".to_string(),
             format!("[a{pi}]"),
+            // Outputs are audio-only filter sinks, so this is inert — kept
+            // for defense-in-depth: every command we emit disables video.
+            "-vn".to_string(),
             "-map_metadata".to_string(),
             "0".to_string(),
         ]);
         args.extend(codec_args.clone());
-        args.push("--".into());
         args.push(out.to_string_lossy().into_owned());
     }
     args
@@ -180,6 +195,7 @@ pub fn run_job(
     job_id: &str,
     source: &Path,
     options: &ConversionOptions,
+    trim: Option<&TrimSpec>,
     multiple_sources: bool,
     ffmpeg: &Path,
     ffprobe: &Path,
@@ -187,6 +203,9 @@ pub fn run_job(
     emit: &Emitter,
 ) -> Result<JobOutcome> {
     options.validate()?;
+    if let Some(t) = trim {
+        t.validate()?;
+    }
 
     // ---- Phase 0: probe --------------------------------------------------
     if cancel.is_cancelled() {
@@ -200,13 +219,32 @@ pub fn run_job(
             source.display()
         )));
     }
+    // Clamp the trim window to what the file actually contains so progress
+    // math and split planning stay on the real (post-trim) duration.
+    let start = trim.and_then(|t| t.start_time_secs).unwrap_or(0.0).min(total);
+    let end = trim
+        .and_then(|t| t.end_time_secs)
+        .map(|e| e.min(total))
+        .unwrap_or(total);
+    let effective_total = (end - start).max(0.01);
     emit(processing_event(job_id, source, Some(1.0), None, None));
 
     // ---- Phase 1: silence detection --------------------------------------
+    // Runs over the TRIMMED span when a window is set, so detected ranges
+    // share the same zero-origin timeline as the encode step below.
     let kept: Vec<silence::Range> = if options.remove_silence {
-        detect_silence(job_id, source, total, options, ffmpeg, &cancel, emit)?
+        detect_silence(
+            job_id,
+            source,
+            effective_total,
+            options,
+            trim,
+            ffmpeg,
+            &cancel,
+            emit,
+        )?
     } else {
-        vec![(0.0, total)]
+        vec![(0.0, effective_total)]
     };
 
     let post_total = silence::total_kept(&kept);
@@ -215,7 +253,7 @@ pub fn run_job(
     let mut warning: Option<String> = None;
     let kept_final = if kept.is_empty() {
         warning = Some("Entire input is silence — wrote a minimal placeholder instead.".into());
-        vec![(0.0, total.min(0.5))]
+        vec![(0.0, effective_total.min(0.5))]
     } else {
         kept
     };
@@ -261,8 +299,8 @@ pub fn run_job(
                 .map(|f| f.to_string_lossy().into_owned())
                 .unwrap_or_else(|| "output".into());
             let temp_name = match fname.rsplit_once('.') {
-                Some((stem, ext)) if !ext.is_empty() => format!("{stem}.part.{ext}"),
-                _ => format!("{fname}.part"),
+                Some((stem, ext)) if !ext.is_empty() => format!("{stem}.{job_id}.part.{ext}"),
+                _ => format!("{fname}.{job_id}.part"),
             };
             parent.join(temp_name)
         })
@@ -333,6 +371,7 @@ pub fn run_job(
             std::slice::from_ref(segs),
             &temps[pi..=pi],
             use_filters,
+            trim,
         );
         if std::env::var("AUDIO_CONVERTER_DEBUG_ARGS").is_ok() {
             eprintln!("ARGS[{pi}]={args:?}");
@@ -378,17 +417,21 @@ pub fn run_job(
 }
 
 /// Scan the source with `silencedetect`, emitting scan progress on the way.
+/// When `trim` is set, the scan covers only that span (same `-ss` before
+/// `-i`, `-to` after), so detected ranges are relative to the seek point —
+/// identical to what the encode pass sees.
 #[allow(clippy::too_many_arguments)]
 fn detect_silence(
     job_id: &str,
     source: &Path,
     total: f64,
     options: &ConversionOptions,
+    trim: Option<&TrimSpec>,
     ffmpeg: &Path,
     cancel: &CancelToken,
     emit: &Emitter,
 ) -> Result<Vec<silence::Range>> {
-    let scan_args: Vec<String> = vec![
+    let mut scan_args: Vec<String> = vec![
         "-hide_banner".into(),
         "-nostdin".into(),
         "-y".into(),
@@ -397,18 +440,25 @@ fn detect_silence(
         "-progress".into(),
         "pipe:1".into(),
         "-nostats".into(),
-        "-i".into(),
-        source.to_string_lossy().into_owned(),
-        "-vn".into(),
-        "-af".into(),
+    ];
+    if let Some(start) = trim.and_then(|t| t.start_time_secs) {
+        scan_args.extend(["-ss".to_string(), format!("{start:.3}")]);
+    }
+    scan_args.extend(["-i".to_string(), source.to_string_lossy().into_owned()]);
+    if let Some(to) = trim.and_then(|t| t.effective_to()) {
+        scan_args.extend(["-to".to_string(), format!("{to:.3}")]);
+    }
+    scan_args.extend([
+        "-vn".to_string(),
+        "-af".to_string(),
         format!(
             "silencedetect=noise={}dB:d={}",
             options.silence_threshold_db, options.silence_min_duration_secs
         ),
-        "-f".into(),
-        "null".into(),
-        "-".into(),
-    ];
+        "-f".to_string(),
+        "null".to_string(),
+        "-".to_string(),
+    ]);
 
     let stderr_buf: Arc<Mutex<String>> = Arc::new(Mutex::new(String::new()));
     let stderr_writer = Arc::clone(&stderr_buf);
@@ -485,6 +535,7 @@ mod tests {
             &[],
             &[PathBuf::from("/tmp/out.mp3")],
             false,
+            None,
         );
         let s = args.join(" ");
         assert!(s.contains("-map 0:a:0"));
@@ -492,6 +543,10 @@ mod tests {
         assert!(s.contains("-ar 44100"));
         assert!(!s.contains("filter_complex"));
         assert!(s.contains("-map_metadata 0"));
+        // No trim → no seek/stop flags at all.
+        assert!(!args.iter().any(|a| a == "-ss" || a == "-to"));
+        // Video must always be dropped.
+        assert!(args.iter().any(|a| a == "-vn"));
     }
 
     #[test]
@@ -507,6 +562,7 @@ mod tests {
             &parts,
             &[PathBuf::from("/out.mp3")],
             true,
+            None,
         );
         let s = args.join(" ");
         assert!(s.contains("atrim=start=0.000000:end=10.000000"));
@@ -529,12 +585,144 @@ mod tests {
             &parts,
             &[PathBuf::from("/o1.opus"), PathBuf::from("/o2.opus")],
             true,
+            None,
         );
         let s = args.join(" ");
         assert!(s.contains("libopus"));
         assert!(s.contains("-b:a 96k"));
         assert_eq!(s.matches("-map [a").count(), 2);
-        assert_eq!(s.matches("-map_metadata 0").count(), 2);
+        // -vn on both outputs: video can never leak into any output.
+        assert_eq!(s.matches(" -vn").count(), 2);
+    }
+
+    /// Spec: `-ss` strictly BEFORE `-i`, `-to` strictly AFTER `-i`,
+    /// and the stop value rebased to the post-seek timeline.
+    #[test]
+    fn trim_flag_ordering_and_rebased_to() {
+        let opts = ConversionOptions::default();
+        let trim = TrimSpec {
+            path: "/in.mp4".into(),
+            start_time_secs: Some(10.0),
+            end_time_secs: Some(30.0),
+        };
+        let args = build_conversion_args(
+            Path::new("/in.mp4"),
+            &opts,
+            &[],
+            &[PathBuf::from("/out.mp3")],
+            false,
+            Some(&trim),
+        );
+        let idx_i = args.iter().position(|a| a == "-i").unwrap();
+        let idx_ss = args.iter().position(|a| a == "-ss").unwrap();
+        let idx_to = args.iter().position(|a| a == "-to").unwrap();
+        assert!(
+            idx_ss < idx_i && idx_i < idx_to,
+            "want -ss before -i before -to, got {args:?}"
+        );
+        // -to must be end − start (post-seek origin), i.e. a 20s window.
+        let to_val: f64 = args[args.iter().position(|a| a == "-to").unwrap() + 1]
+            .parse()
+            .unwrap();
+        assert!((to_val - 20.0).abs() < 1e-9, "rebased -to should be 20, got {to_val}");
+        assert!(args.iter().any(|a| a == "-vn"), "-vn required");
+    }
+
+    /// End-only trim: `-ss` absent, absolute `-to` after `-i`.
+    #[test]
+    fn end_only_trim_uses_absolute_to() {
+        let opts = ConversionOptions::default();
+        let trim = TrimSpec {
+            path: "/in.mp4".into(),
+            start_time_secs: None,
+            end_time_secs: Some(12.5),
+        };
+        let args = build_conversion_args(
+            Path::new("/in.mp4"),
+            &opts,
+            &[],
+            &[PathBuf::from("/out.wav")],
+            false,
+            Some(&trim),
+        );
+        let idx_i = args.iter().position(|a| a == "-i").unwrap();
+        assert!(args.iter().take(idx_i).all(|a| a != "-ss"));
+        let idx_to = args.iter().position(|a| a == "-to").unwrap();
+        assert!(idx_to > idx_i);
+        // No start bound → absolute stop position, unrebased.
+        assert_eq!(args[idx_to + 1], "12.500");
+    }
+
+    /// Start-only trim: `-to` absent entirely.
+    #[test]
+    fn start_only_trim_has_no_to_flag() {
+        let opts = ConversionOptions {
+            format: AudioFormat::Flac,
+            ..Default::default()
+        };
+        let trim = TrimSpec {
+            path: "/in.mp4".into(),
+            start_time_secs: Some(45.0),
+            end_time_secs: None,
+        };
+        let args = build_conversion_args(
+            Path::new("/in.mp4"),
+            &opts,
+            &[],
+            &[PathBuf::from("/out.flac")],
+            false,
+            Some(&trim),
+        );
+        let idx_i = args.iter().position(|a| a == "-i").unwrap();
+        assert_eq!(args[idx_i - 1], "45.000");
+        assert!(!args.iter().any(|a| a == "-to"));
+        assert!(args.iter().any(|a| a == "-c:a" ) && args.iter().any(|a| a == "flac"));
+    }
+
+    #[test]
+    fn trim_spec_validation() {
+        let ok = TrimSpec {
+            path: "x".into(),
+            start_time_secs: Some(10.0),
+            end_time_secs: Some(20.0),
+        };
+        assert!(ok.validate().is_ok());
+        let inverted = TrimSpec {
+            path: "x".into(),
+            start_time_secs: Some(25.0),
+            end_time_secs: Some(20.0),
+        };
+        assert!(inverted.validate().is_err());
+        let negative_start = TrimSpec {
+            path: "x".into(),
+            start_time_secs: Some(-1.0),
+            end_time_secs: None,
+        };
+        assert!(negative_start.validate().is_err());
+        let zero_end = TrimSpec {
+            path: "x".into(),
+            start_time_secs: None,
+            end_time_secs: Some(0.0),
+        };
+        assert!(zero_end.validate().is_err());
+    }
+
+    #[test]
+    fn encoder_map_matches_spec() {
+        // Contract from the product spec; guards against accidental drift.
+        let want = [
+            (AudioFormat::Mp3, "libmp3lame"),
+            (AudioFormat::Aac, "aac"),
+            (AudioFormat::Flac, "flac"),
+            (AudioFormat::Wav, "pcm_s16le"),
+            (AudioFormat::Opus, "libopus"),
+        ];
+        for (fmt, codec) in want {
+            let args = encoder_args(&fmt, None);
+            assert_eq!(args[0], "-c:a");
+            assert_eq!(args[1], codec, "codec mismatch for {fmt:?}");
+            assert!(!args.iter().any(|a| a.starts_with("libx264")), "no video encoders allowed");
+        }
     }
 
     #[test]
@@ -554,5 +742,34 @@ mod tests {
         let src = Path::new("/media/فیلم‌ها/جلسه اول.mp4");
         let paths = naming::build_output_paths(src, &opts, 2, false);
         assert!(paths[0].to_string_lossy().contains("جلسه اول_part_01.mp3"));
+    }
+
+    #[test]
+    fn trim_effective_to_rebasing_matrix() {
+        let both = TrimSpec {
+            path: "x".into(),
+            start_time_secs: Some(10.0),
+            end_time_secs: Some(30.0),
+        };
+        assert!((both.effective_to().unwrap() - 20.0).abs() < 1e-9);
+        let end_only = TrimSpec {
+            path: "x".into(),
+            start_time_secs: None,
+            end_time_secs: Some(30.0),
+        };
+        assert!((end_only.effective_to().unwrap() - 30.0).abs() < 1e-9);
+        // Start-only / nothing → no -to flag at all.
+        let start_only = TrimSpec {
+            path: "x".into(),
+            start_time_secs: Some(5.0),
+            end_time_secs: None,
+        };
+        assert!(start_only.effective_to().is_none());
+        let none = TrimSpec {
+            path: "x".into(),
+            start_time_secs: None,
+            end_time_secs: None,
+        };
+        assert!(none.effective_to().is_none());
     }
 }

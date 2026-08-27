@@ -7,7 +7,7 @@ use crate::error::{AppError, Result};
 use crate::ffmpeg::probe;
 use crate::queue::{JobRecord, QueueManager};
 use crate::settings::Settings;
-use crate::types::{ConversionOptions, FileMeta};
+use crate::types::{ConversionOptions, FileMeta, TrimSpec};
 
 /// Probe files for the UI list. Per-file errors land in `FileMeta.error`
 /// instead of failing the whole call.
@@ -73,29 +73,59 @@ fn file_name_of(path: &str) -> String {
         .unwrap_or_else(|| path.to_string())
 }
 
-/// Enqueue a conversion batch; returns job ids.
+/// Waveform peaks for the trim editor UI. Decodes only the first audio
+/// stream (audio-only decode; no video work) into `buckets` min/max pairs.
+#[tauri::command]
+pub fn waveform_peaks(path: String, buckets: Option<usize>) -> Result<Vec<[f32; 2]>> {
+    let buckets = buckets.unwrap_or(1000).clamp(16, 4000);
+    let ffmpeg = crate::ffmpeg::locate::ffmpeg_path()
+        .map_err(|_| AppError::Other("Bundled ffmpeg binary is missing".into()))?;
+    let peaks = crate::ffmpeg::waveform::extract_peaks(&ffmpeg, &path, buckets)?;
+    // Tauri IPC can't carry tuples directly — flatten to [min, max] arrays.
+    Ok(peaks.into_iter().map(|(mn, mx)| [mn, mx]).collect())
+}
+
+/// Enqueue a conversion batch; returns job ids. Each input carries its own
+/// optional trim window (`startTime`/`endTime` in seconds, both nullable).
 #[tauri::command]
 pub fn start_conversion(
     queue: State<'_, QueueManager>,
-    inputs: Vec<String>,
+    items: Vec<TrimSpec>,
     options: ConversionOptions,
     concurrency: Option<u32>,
 ) -> Result<Vec<String>> {
-    if inputs.is_empty() {
+    if items.is_empty() {
         return Err(AppError::InvalidInput("No input files selected".into()));
     }
     options.validate()?;
-    for p in &inputs {
+    for item in &items {
+        item.validate()?;
+        let p = &item.path;
         if !Path::new(p).exists() {
             return Err(AppError::NotFound(p.clone()));
         }
     }
+    // Reject duplicate sources in one batch — two jobs writing
+    // `{stem}.{ext}` next to the same source would collide via unique_path.
+    let mut seen = std::collections::HashSet::new();
+    for item in &items {
+        if !seen.insert(item.path.clone()) {
+            return Err(AppError::InvalidInput(format!(
+                "Duplicate input file: {}",
+                item.path
+            )));
+        }
+    }
     let conc = concurrency.unwrap_or_else(|| Settings::load().concurrency);
     crate::log_info!(
-        "queue started: {} file(s), concurrency {conc}",
-        inputs.len()
+        "queue started: {} file(s), concurrency {conc}, {} trimmed",
+        items.len(),
+        items
+            .iter()
+            .filter(|i| i.start_time_secs.is_some() || i.end_time_secs.is_some())
+            .count()
     );
-    Ok(queue.enqueue(inputs, options, conc))
+    Ok(queue.enqueue(items, options, conc))
 }
 
 #[tauri::command]
@@ -148,3 +178,9 @@ pub fn save_settings(settings: Settings) -> Result<()> {
     crate::log_info!("settings saved");
     Ok(())
 }
+
+#[tauri::command]
+pub fn log_frontend(level: String, msg: String) {
+    crate::logger::log(&level, &format!("[FRONTEND] {msg}"));
+}
+

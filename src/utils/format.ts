@@ -11,6 +11,24 @@ export function formatDuration(totalSeconds: number): string {
   return `${m}:${String(sec).padStart(2, "0")}`;
 }
 
+/**
+ * Format seconds as an editor timecode: M:SS.t (or H:MM:SS.t past an hour).
+ * One decimal — the trim editor's precision. Round-trips through
+ * parseTimeInput.
+ */
+export function formatTimecode(totalSeconds: number): string {
+  if (!Number.isFinite(totalSeconds) || totalSeconds < 0) return "0:00.0";
+  const tenths = Math.round(totalSeconds * 10);
+  const whole = Math.floor(tenths / 10);
+  const frac = tenths % 10;
+  const h = Math.floor(whole / 3600);
+  const m = Math.floor((whole % 3600) / 60);
+  const sec = whole % 60;
+  const tail = `:${String(sec).padStart(2, "0")}.${frac}`;
+  if (h > 0) return `${h}:${String(m).padStart(2, "0")}${tail}`;
+  return `${m}${tail}`;
+}
+
 /** Human file size: B / KB / MB / GB with one decimal where useful. */
 export function formatBytes(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
@@ -50,4 +68,25 @@ export function parseDurationInput(raw: string): number | null {
 /** Clamp helper used by numeric inputs. */
 export function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
+}
+
+/**
+ * Parse a trim timestamp ("HH:MM:SS", "MM:SS", "SS" or decimal seconds)
+ * into seconds. Unlike parseDurationInput (split duration, minutes-based),
+ * bare numbers here ARE seconds. Returns null for empty/garbage input.
+ */
+export function parseTimeInput(raw: string): number | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  if (!trimmed.includes(":")) {
+    if (!/^\d+(\.\d+)?$/.test(trimmed)) return null;
+    return Number(trimmed);
+  }
+  const parts = trimmed.split(":").map((p) => p.trim());
+  if (parts.length > 3 || parts.some((p) => p === "" || !/^\d+(\.\d+)?$/.test(p))) {
+    return null;
+  }
+  let secs = 0;
+  for (const part of parts) secs = secs * 60 + Number(part);
+  return secs;
 }

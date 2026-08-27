@@ -28,6 +28,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::probe_files,
             commands::start_conversion,
+            commands::waveform_peaks,
             commands::cancel_job,
             commands::cancel_all_jobs,
             commands::clear_finished,
@@ -35,6 +36,7 @@ pub fn run() {
             commands::disk_free,
             commands::get_settings,
             commands::save_settings,
+            commands::log_frontend,
         ])
         .build(tauri::generate_context!())
         .expect("error while building audio converter")

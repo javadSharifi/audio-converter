@@ -24,6 +24,20 @@ export function estimateKbps(
   }
 }
 
+/**
+ * Duration actually encoded for one file: honors its optional trim window,
+ * clamped to the file duration — mirrors the backend's post-trim planning.
+ */
+function effectiveDuration(file: InputFile): number {
+  const start =
+    file.trimStartSecs != null ? Math.min(Math.max(0, file.trimStartSecs), file.durationSecs) : 0;
+  const end =
+    file.trimEndSecs != null && file.trimEndSecs > 0
+      ? Math.min(file.trimEndSecs, file.durationSecs)
+      : file.durationSecs;
+  return Math.max(0, end - start);
+}
+
 /** Total estimated output size in bytes across all valid files, or null. */
 export function estimateOutputBytes(
   files: InputFile[],
@@ -31,7 +45,7 @@ export function estimateOutputBytes(
   options: Pick<ConversionOptions, "quality" | "customBitrateKbps">,
 ): number | null {
   const usable = files.filter((f) => !f.error && f.hasAudio);
-  const duration = usable.reduce((acc, f) => acc + f.durationSecs, 0);
+  const duration = usable.reduce((acc, f) => acc + effectiveDuration(f), 0);
   if (duration <= 0) return null;
   const kbps = estimateKbps(format, options);
   return Math.round((kbps * 1000) / 8 * duration);

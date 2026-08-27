@@ -20,6 +20,8 @@ export interface ConversionOptions {
   customOutputDir: string | null;
 }
 
+export type MediaKind = "audio" | "video";
+
 export interface InputFile {
   path: string;
   name: string;
@@ -28,6 +30,21 @@ export interface InputFile {
   formatName: string;
   hasAudio: boolean;
   error: string | null;
+  /** audio = pure audio file, video = container with (usually) a video track. */
+  kind?: MediaKind;
+  /** Optional per-file trim window, seconds. Undefined = whole file. */
+  trimStartSecs?: number | null;
+  trimEndSecs?: number | null;
+}
+
+/**
+ * Per-item payload for start_conversion. Mirrors the Rust `TrimSpec`
+ * (camelCase serde): `{ path, startTime, endTime }`, seconds or null.
+ */
+export interface TrimSpec {
+  path: string;
+  startTime: number | null;
+  endTime: number | null;
 }
 
 /** Mirrors backend FileMeta (camelCase serde). */

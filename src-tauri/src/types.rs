@@ -74,6 +74,61 @@ pub enum OutputMode {
     PerSourceFolder,
 }
 
+/// Optional per-file trim window, in seconds. Both bounds optional: a `None`
+/// bound means "until the start/end of the file". Serialized as
+/// `{ path, startTime, endTime }` from the frontend (camelCase, seconds).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TrimSpec {
+    pub path: String,
+    /// Fast-seek position; inserted BEFORE `-i` when present.
+    pub start_time_secs: Option<f64>,
+    /// Stop position; inserted AFTER `-i` as `-to` when present.
+    pub end_time_secs: Option<f64>,
+}
+
+impl TrimSpec {
+    pub fn validate(&self) -> Result<()> {
+        if let Some(s) = self.start_time_secs {
+            if !(s.is_finite() && s >= 0.0) {
+                return Err(AppError::InvalidInput(format!(
+                    "Start time must be ≥ 0 for {}",
+                    self.path
+                )));
+            }
+        }
+        if let Some(e) = self.end_time_secs {
+            if !(e.is_finite() && e > 0.0) {
+                return Err(AppError::InvalidInput(format!(
+                    "End time must be positive for {}",
+                    self.path
+                )));
+            }
+        }
+        if let (Some(s), Some(e)) = (self.start_time_secs, self.end_time_secs) {
+            if e <= s {
+                return Err(AppError::InvalidInput(format!(
+                    "End time ({e}s) must be after start time ({s}s) for {}",
+                    self.path
+                )));
+            }
+        }
+        Ok(())
+    }
+
+    /// `-to` is measured on the POST-`-ss` timeline (input seeking resets the
+    /// timestamp origin to the seek point), so rebase it to a relative offset.
+    /// Without rebasing, `start=10 end=30` would decode 40s of audio instead
+    /// of the requested 20s.
+    pub fn effective_to(&self) -> Option<f64> {
+        match (self.end_time_secs, self.start_time_secs) {
+            (Some(end), Some(start)) => Some((end - start).max(0.001)),
+            (Some(end), None) => Some(end),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 #[serde(default, rename_all = "camelCase")]
 pub struct ConversionOptions {
@@ -186,7 +241,7 @@ pub struct FileMeta {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct JobEvent {
-    pub job_id: String,
+    pub id: String,
     pub source_path: String,
     pub status: JobStatus,
     /// 0..=100 overall for this job.

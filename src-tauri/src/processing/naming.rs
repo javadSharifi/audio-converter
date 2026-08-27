@@ -1,6 +1,17 @@
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 use crate::types::ConversionOptions;
+
+static RESERVED: Mutex<Option<HashSet<PathBuf>>> = Mutex::new(None);
+
+pub fn clear_reserved_paths() {
+    let mut guard = RESERVED.lock().unwrap();
+    if let Some(set) = guard.as_mut() {
+        set.clear();
+    }
+}
 
 /// Remove characters illegal in a single path component on any platform,
 /// while preserving Unicode (e.g. Persian filenames stay intact).
@@ -20,11 +31,10 @@ pub fn sanitize_component(name: &str) -> String {
 }
 
 /// Return a non-colliding path: appends `(1)`, `(2)`, … before the extension.
-/// Never silently overwrites an existing file.
+/// Thread-safe and atomic across concurrent workers.
 pub fn unique_path(target: &Path) -> PathBuf {
-    if !target.exists() {
-        return target.to_path_buf();
-    }
+    let mut guard = RESERVED.lock().unwrap();
+    let reserved = guard.get_or_insert_with(HashSet::new);
     let parent = target.parent().unwrap_or_else(|| Path::new("."));
     let stem = target
         .file_stem()
@@ -34,18 +44,26 @@ pub fn unique_path(target: &Path) -> PathBuf {
         .extension()
         .map(|s| format!(".{}", s.to_string_lossy()))
         .unwrap_or_default();
+
+    if !target.exists() && !reserved.contains(target) {
+        reserved.insert(target.to_path_buf());
+        return target.to_path_buf();
+    }
+
     for n in 1..10_000u32 {
         let candidate = parent.join(format!("{stem} ({n}){ext}"));
-        if !candidate.exists() {
+        if !candidate.exists() && !reserved.contains(&candidate) {
+            reserved.insert(candidate.clone());
             return candidate;
         }
     }
-    // Practically unreachable; deterministic last resort.
-    parent.join(format!(
+    let fallback = parent.join(format!(
         "{stem}-{}.{}",
         std::process::id(),
         ext.trim_start_matches('.')
-    ))
+    ));
+    reserved.insert(fallback.clone());
+    fallback
 }
 
 /// Decide the final directory for outputs of `source`.

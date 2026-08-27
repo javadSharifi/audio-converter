@@ -8,7 +8,7 @@ use tauri::{AppHandle, Emitter as _};
 use crate::error::AppError;
 use crate::ffmpeg::run::CancelToken;
 use crate::processing::pipeline::{self, Emitter};
-use crate::types::{ConversionOptions, JobEvent, JobStatus};
+use crate::types::{ConversionOptions, JobEvent, JobStatus, TrimSpec};
 
 /// Snapshot of one job, serialized to the frontend.
 #[derive(Debug, Clone, serde::Serialize)]
@@ -28,7 +28,8 @@ pub struct JobRecord {
 struct QueueInner {
     app: AppHandle,
     jobs: Mutex<HashMap<String, JobRecord>>,
-    order: Mutex<VecDeque<(String, PathBuf)>>,
+    /// FIFO of pending work: (job id, source path, optional trim window).
+    order: Mutex<VecDeque<(String, PathBuf, Option<TrimSpec>)>>,
     tokens: Mutex<HashMap<String, CancelToken>>,
     active_workers: AtomicUsize,
     shutting_down: AtomicBool,
@@ -66,45 +67,63 @@ impl QueueManager {
     }
 
     /// Enqueue files and start `concurrency` workers. Returns job ids in
-    /// the same order as `inputs`.
+    /// Enqueue files and start `concurrency` workers. Returns job ids in
+    /// the same order as `inputs`. Each item carries an optional per-file
+    /// trim window; `None` means "process whole file".
     pub fn enqueue(
         &self,
-        inputs: Vec<String>,
+        items: Vec<TrimSpec>,
         options: ConversionOptions,
         concurrency: u32,
     ) -> Vec<String> {
-        let mut ids = Vec::with_capacity(inputs.len());
+        // Cancel any lingering in-flight tasks from prior batch
+        self.cancel_all();
+        crate::processing::naming::clear_reserved_paths();
+
+        let mut ids = Vec::with_capacity(items.len());
+        let mut fresh_records = Vec::with_capacity(items.len());
         {
             let mut jobs = self.inner.jobs.lock().unwrap();
             let mut order = self.inner.order.lock().unwrap();
-            for path in inputs {
+            let mut tokens = self.inner.tokens.lock().unwrap();
+
+            // Clear old jobs, order queue, and tokens completely for the fresh batch
+            jobs.clear();
+            order.clear();
+            tokens.clear();
+
+            for item in items {
                 let id = new_job_id();
-                jobs.insert(
-                    id.clone(),
-                    JobRecord {
-                        id: id.clone(),
-                        source_path: path.clone(),
-                        status: JobStatus::Waiting,
-                        percent: None,
-                        speed: None,
-                        error: None,
-                        technical: None,
-                        warning: None,
-                        outputs: vec![],
-                    },
-                );
-                order.push_back((id.clone(), PathBuf::from(&path)));
+                let source = PathBuf::from(&item.path);
+                // Whole-file job (both bounds blank): no seek flags anywhere.
+                let trim = if item.start_time_secs.is_some() || item.end_time_secs.is_some() {
+                    Some(item)
+                } else {
+                    None
+                };
+                let rec = JobRecord {
+                    id: id.clone(),
+                    source_path: source.to_string_lossy().into_owned(),
+                    status: JobStatus::Waiting,
+                    percent: None,
+                    speed: None,
+                    error: None,
+                    technical: None,
+                    warning: None,
+                    outputs: vec![],
+                };
+                jobs.insert(id.clone(), rec.clone());
+                tokens.insert(id.clone(), CancelToken::new());
+                fresh_records.push(rec);
+                order.push_back((id.clone(), source, trim));
                 ids.push(id);
             }
         }
 
-        // Register one cancel token PER JOB so cancelling a single file
-        // doesn't kill the rest of the batch.
-        {
-            let mut tokens = self.inner.tokens.lock().unwrap();
-            for id in &ids {
-                tokens.insert(id.clone(), CancelToken::new());
-            }
+        // Announce every queued job immediately so the UI list shows the
+        // whole batch from the start, not only files once a worker picks them.
+        for rec in &fresh_records {
+            self.inner.emit_event_for(rec);
         }
 
         let worker_count = concurrency.clamp(1, 32).min((ids.len().max(1)) as u32) as usize;
@@ -143,6 +162,25 @@ impl QueueManager {
         for t in tokens {
             t.cancel();
         }
+        // Clear pending FIFO queue
+        self.inner.order.lock().unwrap().clear();
+
+        // Update all waiting and processing records to Cancelled
+        let updated: Vec<JobRecord> = {
+            let mut jobs = self.inner.jobs.lock().unwrap();
+            let mut recs = Vec::new();
+            for rec in jobs.values_mut() {
+                if matches!(rec.status, JobStatus::Waiting | JobStatus::Processing) {
+                    rec.status = JobStatus::Cancelled;
+                    rec.speed = None;
+                    recs.push(rec.clone());
+                }
+            }
+            recs
+        };
+        for rec in updated {
+            self.inner.emit_event_for(&rec);
+        }
     }
 
     /// Drop finished/failed/cancelled records from the list.
@@ -171,8 +209,14 @@ impl QueueManager {
 
 impl QueueInner {
     fn emit_event_for(&self, rec: &JobRecord) {
+        crate::log_info!(
+            "emit_event: id={} status={:?} percent={:?}",
+            rec.id,
+            rec.status,
+            rec.percent
+        );
         self.emit(&JobEvent {
-            job_id: rec.id.clone(),
+            id: rec.id.clone(),
             source_path: rec.source_path.clone(),
             status: rec.status.clone(),
             percent: rec.percent,
@@ -217,11 +261,12 @@ fn worker_loop(inner: Arc<QueueInner>, options: ConversionOptions) {
             break;
         }
         let next = inner.order.lock().unwrap().pop_front();
-        let Some((job_id, source)) = next else { break };
+        let Some((job_id, source, trim)) = next else { break };
 
         // Per-job token: cancel(job_id) kills only this file.
         let Some(token) = inner.tokens.lock().unwrap().get(&job_id).cloned() else {
-            break;
+            crate::log_warn!("missing token for job {job_id}, skipping");
+            continue;
         };
         if token.is_cancelled() {
             if let Some(rec) = inner.update(&job_id, |r| r.status = JobStatus::Cancelled) {
@@ -246,7 +291,7 @@ fn worker_loop(inner: Arc<QueueInner>, options: ConversionOptions) {
             Arc::new(move |ev: JobEvent| {
                 let captured = ev.clone();
                 inner2.emit(&captured);
-                inner2.update(&ev.job_id, |r| {
+                inner2.update(&ev.id, |r| {
                     r.percent = ev.percent;
                     r.speed = ev.speed.clone();
                     if let Some(w) = &ev.warning {
@@ -266,6 +311,7 @@ fn worker_loop(inner: Arc<QueueInner>, options: ConversionOptions) {
             &job_id,
             &source,
             &options,
+            trim.as_ref(),
             multiple_sources,
             &ffmpeg,
             &ffprobe,

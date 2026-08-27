@@ -26,11 +26,16 @@ function JobRow({ job }: { job: QueueItem }): React.JSX.Element {
       <div className="flex items-center gap-2 text-sm">
         <span className={`h-2 w-2 shrink-0 rounded-full ${statusColor(job.status)}`} />
         <span className="min-w-0 flex-1 truncate" title={job.sourcePath}>{name}</span>
-        <span className="text-xs opacity-60">{translate(lang, statusLabelKey(job.status))}</span>
+        {job.status === "processing" && job.percent != null && (
+          <span className="shrink-0 tabular-nums text-xs font-medium text-blue-500">
+            {Math.round(job.percent)}%
+          </span>
+        )}
+        <span className="shrink-0 text-xs opacity-60">{translate(lang, statusLabelKey(job.status))}</span>
         {active && (
           <button
             onClick={() => void cancelJob(job.id)}
-            className="text-xs text-red-500 hover:underline"
+            className="shrink-0 text-xs text-red-500 hover:underline"
           >
             ✕
           </button>
@@ -78,9 +83,15 @@ export function JobsPanel(): React.JSX.Element | null {
   const clearFinishedJobs = useAppStore((s) => s.clearFinishedJobs);
   const lang = useAppStore((s) => s.lang);
 
+  // Numeric-aware: "job-…-10" must sort after "job-…-2". Ids are monotonic
+  // per enqueue, so this keeps rows in stable submission order — no jumping.
+  const collator = useMemo(
+    () => new Intl.Collator(undefined, { numeric: true }),
+    [],
+  );
   const list = useMemo(
-    () => Array.from(jobs.values()).sort((a, b) => a.id.localeCompare(b.id)),
-    [jobs],
+    () => Array.from(jobs.values()).sort((a, b) => collator.compare(a.id, b.id)),
+    [jobs, collator],
   );
 
   if (list.length === 0) {
@@ -92,16 +103,34 @@ export function JobsPanel(): React.JSX.Element | null {
   }
 
   const done = list.filter((j) => j.status === "completed").length;
+  const failed = list.filter((j) => j.status === "failed").length;
+  const active = list.filter((j) => j.status === "processing" || j.status === "waiting").length;
   const total = list.length;
   const overall = total === 0 ? 0 : Math.round((done / total) * 100);
-  const anyActive = list.some((j) => ["waiting", "processing"].includes(j.status));
+  const anyActive = active > 0;
 
   return (
     <section className="flex flex-col gap-3" data-testid="jobs-panel">
-      <div className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold">
-          {translate(lang, "filesCompleted", { done, total })}
-        </h2>
+      <div className="flex items-center justify-between gap-2">
+        {/* Compact per-status counters instead of a single "X of Y" line. */}
+        <div className="flex items-center gap-3 text-xs tabular-nums">
+          <span className="flex items-center gap-1.5" title={translate(lang, "statusCompleted")}>
+            <span className="h-2 w-2 rounded-full bg-emerald-500" />
+            {done}/{total}
+          </span>
+          {active > 0 && (
+            <span className="flex items-center gap-1.5 text-blue-500" title={translate(lang, "statusProcessing")}>
+              <span className="h-2 w-2 animate-pulse rounded-full bg-blue-500" />
+              {active}
+            </span>
+          )}
+          {failed > 0 && (
+            <span className="flex items-center gap-1.5 text-red-500" title={translate(lang, "statusFailed")}>
+              <span className="h-2 w-2 rounded-full bg-red-500" />
+              {failed}
+            </span>
+          )}
+        </div>
         <div className="flex gap-2 text-xs">
           {anyActive && (
             <button onClick={() => void cancelAll()} className="rounded-lg border border-zinc-300 px-2 py-1 hover:border-red-400 hover:text-red-500 dark:border-zinc-700">
@@ -124,7 +153,7 @@ export function JobsPanel(): React.JSX.Element | null {
         />
       </div>
 
-      <ul className="flex max-h-72 flex-col gap-2 overflow-y-auto pe-1">
+      <ul className="flex max-h-96 flex-col gap-2 overflow-y-auto pe-1">
         {list.map((j) => (
           <JobRow key={j.id} job={j} />
         ))}

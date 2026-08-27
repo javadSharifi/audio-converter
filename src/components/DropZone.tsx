@@ -1,6 +1,5 @@
-import { useCallback, useState } from "react";
+import { useState } from "react";
 import { useAppStore } from "../stores/useAppStore";
-import { useNativeDragDrop } from "../hooks/useNativeDragDrop";
 import { translate } from "../i18n";
 import { pickVideos } from "../utils/dialog";
 
@@ -9,14 +8,6 @@ export function DropZone(): React.JSX.Element {
   const addPaths = useAppStore((s) => s.addPaths);
   const probing = useAppStore((s) => s.probing);
   const [hover, setHover] = useState(false);
-
-  const handleDrop = useCallback(
-    (paths: string[]) => {
-      void addPaths(paths);
-    },
-    [addPaths],
-  );
-  useNativeDragDrop(handleDrop);
 
   return (
     <div

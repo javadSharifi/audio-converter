@@ -8,7 +8,7 @@ use std::sync::Arc;
 use audio_converter::ffmpeg::probe;
 use audio_converter::ffmpeg::run::{CancelToken, RunSpec};
 use audio_converter::processing::pipeline;
-use audio_converter::types::{AudioFormat, ConversionOptions, OutputMode};
+use audio_converter::types::{AudioFormat, ConversionOptions, OutputMode, TrimSpec};
 
 fn bin(name: &str) -> Option<PathBuf> {
     let p = std::env::current_dir()
@@ -136,6 +136,7 @@ fn e2e_straight_mp3_conversion() {
         "job-e2e-1",
         &input,
         &options,
+        None,
         false,
         &ffmpeg(),
         &ffprobe(),
@@ -170,6 +171,7 @@ fn e2e_split_with_remainder() {
         "job-e2e-2",
         &input,
         &options,
+        None,
         false,
         &ffmpeg(),
         &ffprobe(),
@@ -208,6 +210,7 @@ fn e2e_silence_removal_shortens_output() {
         "job-e2e-3",
         &input,
         &options,
+        None,
         false,
         &ffmpeg(),
         &ffprobe(),
@@ -249,6 +252,7 @@ fn e2e_split_calculated_against_post_silence_timeline() {
         "job-e2e-4",
         &input,
         &options,
+        None,
         false,
         &ffmpeg(),
         &ffprobe(),
@@ -283,6 +287,7 @@ fn e2e_unicode_persian_filename() {
         "job-e2e-5",
         &input,
         &options,
+        None,
         false,
         &ffmpeg(),
         &ffprobe(),
@@ -310,6 +315,7 @@ fn e2e_no_audio_track_fails_gracefully() {
         "job-e2e-6",
         &input,
         &options,
+        None,
         false,
         &ffmpeg(),
         &ffprobe(),
@@ -330,6 +336,81 @@ fn e2e_no_audio_track_fails_gracefully() {
         .filter(|n| n.ends_with(".part"))
         .collect();
     assert!(leftovers.is_empty(), "temp files leaked: {leftovers:?}");
+}
+
+#[test]
+fn e2e_trim_start_and_end() {
+    if !bin("ffmpeg").is_some() || !bin("ffprobe").is_some() {
+        return;
+    }
+    let dir = temp_case("trim-window");
+    let input = gen_video(&dir, "in.mp4"); // 6s total
+
+    // 1s → 3s ⇒ expect a ~2s output.
+    let trim = TrimSpec {
+        path: input.to_string_lossy().into_owned(),
+        start_time_secs: Some(1.0),
+        end_time_secs: Some(3.0),
+    };
+    let options = ConversionOptions::default();
+    let emitter: audio_converter::processing::pipeline::Emitter = Arc::new(|_| {});
+    let outcome = pipeline::run_job(
+        "job-e2e-trim",
+        &input,
+        &options,
+        Some(&trim),
+        false,
+        &ffmpeg(),
+        &ffprobe(),
+        CancelToken::new(),
+        &emitter,
+    )
+    .expect("trimmed pipeline failed");
+
+    assert_eq!(outcome.outputs.len(), 1);
+    let dur = probe_duration(&outcome.outputs[0]);
+    assert!(
+        (dur - 2.0).abs() < TOLERANCE,
+        "expected ~2s trimmed output, got {dur}"
+    );
+}
+
+#[test]
+fn e2e_trim_start_only_runs_to_eof() {
+    if !bin("ffmpeg").is_some() || !bin("ffprobe").is_some() {
+        return;
+    }
+    let dir = temp_case("trim-start");
+    let input = gen_video(&dir, "in.mp4");
+
+    let trim = TrimSpec {
+        path: input.to_string_lossy().into_owned(),
+        start_time_secs: Some(4.0),
+        end_time_secs: None,
+    };
+    let options = ConversionOptions {
+        format: AudioFormat::Opus,
+        ..Default::default()
+    };
+    let emitter: audio_converter::processing::pipeline::Emitter = Arc::new(|_| {});
+    let outcome = pipeline::run_job(
+        "job-e2e-trim-start",
+        &input,
+        &options,
+        Some(&trim),
+        false,
+        &ffmpeg(),
+        &ffprobe(),
+        CancelToken::new(),
+        &emitter,
+    )
+    .expect("start-only trim failed");
+
+    let dur = probe_duration(&outcome.outputs[0]);
+    assert!(
+        (dur - 2.0).abs() < TOLERANCE,
+        "expected last ~2s of a 6s source, got {dur}"
+    );
 }
 
 #[test]

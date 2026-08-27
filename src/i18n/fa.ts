@@ -3,9 +3,9 @@ import type { TranslationKey } from "./en";
 /** Persian translations (RTL). */
 export const fa: Record<TranslationKey, string> = {
   appTitle: "مبدل صدا",
-  dropHere: "فایل‌های ویدیویی را اینجا رها کنید",
+  dropHere: "فایل‌های ویدیویی یا صوتی را اینجا رها کنید",
   orBrowse: "یا برای انتخاب کلیک کنید",
-  supported: "MP4، MKV، AVI، MOV، WEBM، FLV، WMV و سایر فرمت‌ها",
+  supported: "MP4، MKV، MOV… و MP3، WAV، FLAC، M4A و سایر فرمت‌ها",
   addFiles: "افزودن فایل",
   clearList: "پاک کردن فهرست",
   removeFile: "حذف",
@@ -16,6 +16,21 @@ export const fa: Record<TranslationKey, string> = {
   colDuration: "مدت",
   colFormat: "فرمت",
   colStatus: "وضعیت",
+
+  trimStart: "شروع",
+  trimEnd: "پایان",
+  trimPlaceholder: "HH:MM:SS یا ثانیه",
+  trimTitle: "برش — دستگیره‌ها را بکشید، برای شنیدن داخل انتخاب کلیک کنید",
+  trimPlay: "پخش انتخاب",
+  trimClear: "بازنشانی",
+  trimLoading: "در حال خواندن موج صدا…",
+  trimWaveError: "نمایش موج در دسترس نیست",
+  trimSelectedDuration: "انتخاب‌شده",
+  trimCutFirst10: "حذف ۱۰ ثانیهٔ اول",
+  trimCutLast10: "حذف ۱۰ ثانیهٔ آخر",
+  trimRange: "برش",
+  trimFullFile: "کل فایل",
+  trimEdit: "ویرایش برش برای",
 
   outputSettings: "تنظیمات خروجی",
   format: "قالب",
@@ -59,10 +74,12 @@ export const fa: Record<TranslationKey, string> = {
   statusFailed: "ناموفق",
   statusCancelled: "لغو شده",
 
-  errNoFiles: "ابتدا حداقل یک فایل ویدیوی معتبر اضافه کنید.",
+  errNoFiles: "ابتدا حداقل یک فایل رسانه‌ای معتبر اضافه کنید.",
   errInvalidSplit: "مدت بخش را به‌درستی وارد کنید.",
   errNoOutputDir: "ابتدا پوشه خروجی را انتخاب کنید.",
   errSomeFilesInvalid: "برخی فایل‌ها قابل خواندن نبودند و نادیده گرفته می‌شوند.",
+  errTrimInvalid: "زمان‌های برش باید عددی مثبت باشند (HH:MM:SS یا ثانیه).",
+  errTrimOrder: "زمان پایان باید بعد از زمان شروع باشد.",
 
   warnAllSilent: "کل ورودی سکوت بود — یک فایل حداقلی نوشته شد.",
   showDetails: "نمایش جزئیات فنی",

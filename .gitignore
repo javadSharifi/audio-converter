@@ -6,3 +6,6 @@ src-tauri/binaries/*
 !src-tauri/binaries/.gitkeep
 *.local
 .DS_Store
+*.dmg
+*.zip
+
