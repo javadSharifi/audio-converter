@@ -127,10 +127,9 @@ function drawWaveform(canvas: HTMLCanvasElement, args: PaintArgs): void {
     ctx.fillRect(gripX + gripW / 2 - 0.75, gripY + 8, 1.5, gripH - 16);
   };
 
-  if (selStart != null || selEnd != null) {
-    drawHandle(lo, true);
-    drawHandle(hi, false);
-  }
+  // Always draw start and end handles
+  drawHandle(lo, true);
+  drawHandle(hi, false);
 
   // Playhead with top triangle indicator
   if (playTime != null && duration > 0) {
@@ -285,10 +284,10 @@ export function TrimEditor({ file }: { file: InputFile }): React.JSX.Element | n
       const rect = wrap.getBoundingClientRect();
       const px = clientX - rect.left;
       const toPx = (t: number) => (t / duration) * rect.width;
-      const sx = selStart != null ? toPx(selStart) : null;
-      const ex = selEnd != null ? toPx(selEnd) : null;
-      const ds = sx != null ? Math.abs(px - sx) : Infinity;
-      const de = ex != null ? Math.abs(px - ex) : Infinity;
+      const sx = toPx(selStart ?? 0);
+      const ex = toPx(selEnd ?? duration);
+      const ds = Math.abs(px - sx);
+      const de = Math.abs(px - ex);
       if (ds < HANDLE_HIT_PX && ds <= de) return "start";
       if (de < HANDLE_HIT_PX && de < ds) return "end";
       return null;
@@ -298,19 +297,25 @@ export function TrimEditor({ file }: { file: InputFile }): React.JSX.Element | n
 
   const applyBound = useCallback(
     (which: Exclude<DragTarget, null>, t: number) => {
-      const other = which === "start" ? selEnd : selStart;
       let v = clampT(t);
-      if (other != null) {
-        v = which === "start" ? Math.min(v, other - 0.05) : Math.max(v, other + 0.05);
+      if (which === "start") {
+        const curEnd = selEnd ?? duration;
+        v = Math.min(v, curEnd - 0.05);
+        v = clampT(v);
+        setTrim(file.path, "trimStartSecs", v);
+      } else {
+        const curStart = selStart ?? 0;
+        v = Math.max(v, curStart + 0.05);
+        v = clampT(v);
+        setTrim(file.path, "trimEndSecs", v);
       }
-      v = clampT(v);
-      setTrim(file.path, which === "start" ? "trimStartSecs" : "trimEndSecs", v);
     },
     [clampT, duration, file.path, selEnd, selStart, setTrim],
   );
 
   // Stable ref to selection playback for pointer-down handler.
   const playSelectionRef = useRef<() => void>(() => {});
+  const previewEndRef = useRef<number | null>(null);
 
   const onPointerDown = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
@@ -324,23 +329,22 @@ export function TrimEditor({ file }: { file: InputFile }): React.JSX.Element | n
         audition(t);
         return;
       }
+
+      const curStart = selStart ?? 0;
+      const curEnd = selEnd ?? duration;
+
       // Click inside an existing selection → audition it.
-      const inSel =
-        hasSelection &&
-        (selStart == null || t >= selStart) &&
-        (selEnd == null || t <= selEnd);
-      if (inSel) {
+      if (hasSelection && t > curStart && t < curEnd) {
         playSelectionRef.current();
         return;
       }
+
       // Click outside → snap the NEARER bound here and drag it.
-      const distToStart =
-        selStart != null ? Math.abs(t - selStart) : Infinity;
-      const distToEnd = selEnd != null ? Math.abs(t - selEnd) : Infinity;
-      const nearerEnd =
-        selStart == null ? false : selEnd == null ? true : distToStart > distToEnd;
-      applyBound(nearerEnd ? "end" : "start", t);
-      draggingRef.current = nearerEnd ? "end" : "start";
+      const distToStart = Math.abs(t - curStart);
+      const distToEnd = Math.abs(t - curEnd);
+      const which: "start" | "end" = distToEnd < distToStart ? "end" : "start";
+      applyBound(which, t);
+      draggingRef.current = which;
       e.currentTarget.setPointerCapture(e.pointerId);
       audition(t);
     },
@@ -382,25 +386,49 @@ export function TrimEditor({ file }: { file: InputFile }): React.JSX.Element | n
     [stopAudition],
   );
 
-  // ---- Selection playback -------------------------------------------------
+  // ---- Selection & Preview playback ---------------------------------------
+  const playPreviewRange = useCallback(
+    (from: number, to: number) => {
+      const a = audioRef.current;
+      if (!a || !srcUrl) return;
+      const cleanFrom = Math.max(0, Math.min(duration, from));
+      const cleanTo = Math.max(cleanFrom, Math.min(duration, to));
+      if (cleanTo - cleanFrom <= 0.01) return;
+
+      previewEndRef.current = cleanTo;
+      a.currentTime = cleanFrom;
+      void a.play().catch(() => {});
+    },
+    [duration, srcUrl],
+  );
+
+  const previewFirst10 = useCallback(() => {
+    const start = selStart ?? 0;
+    const end = selEnd ?? duration;
+    const targetEnd = Math.min(start + 10, end);
+    playPreviewRange(start, targetEnd);
+  }, [duration, playPreviewRange, selEnd, selStart]);
+
+  const previewLast10 = useCallback(() => {
+    const start = selStart ?? 0;
+    const end = selEnd ?? duration;
+    const targetStart = Math.max(end - 10, start);
+    playPreviewRange(targetStart, end);
+  }, [duration, playPreviewRange, selEnd, selStart]);
+
   const playSelection = useCallback(() => {
     const a = audioRef.current;
     if (!a || !srcUrl) return;
     const from = selStart ?? 0;
     const to = selEnd ?? duration;
     if (to - from <= 0.01) return;
-    // If playback is already inside the selection, resume; else restart it.
-    if (
-      !a.paused &&
-      a.currentTime >= from - 0.05 &&
-      a.currentTime < to - 0.05
-    ) {
+
+    if (!a.paused) {
       a.pause();
       return;
     }
-    a.currentTime = from;
-    void a.play().catch(() => {});
-  }, [duration, selEnd, selStart, srcUrl]);
+    playPreviewRange(from, to);
+  }, [duration, playPreviewRange, selEnd, selStart, srcUrl]);
 
   useEffect(() => {
     playSelectionRef.current = playSelection;
@@ -410,32 +438,19 @@ export function TrimEditor({ file }: { file: InputFile }): React.JSX.Element | n
   const onAudioTimeUpdate = useCallback(() => {
     const a = audioRef.current;
     if (!a || a.paused) return;
-    if (draggingRef.current == null && selEnd != null && a.currentTime >= selEnd) {
+    const targetEnd = previewEndRef.current ?? (selEnd ?? duration);
+    if (draggingRef.current == null && a.currentTime >= targetEnd) {
       a.pause();
-      a.currentTime = selEnd;
+      a.currentTime = targetEnd;
+      previewEndRef.current = null;
     }
-  }, [selEnd]);
+  }, [duration, selEnd]);
 
   const clearTrim = useCallback(() => {
     setTrim(file.path, "trimStartSecs", null);
     setTrim(file.path, "trimEndSecs", null);
     stopAudition();
   }, [file.path, setTrim, stopAudition]);
-
-  // One-click presets: Select first 10 seconds or last 10 seconds
-  const cutLast10 = useCallback(() => {
-    if (duration <= 0) return;
-    const start = Math.max(0, duration - 10);
-    setTrim(file.path, "trimStartSecs", start);
-    setTrim(file.path, "trimEndSecs", duration);
-  }, [duration, file.path, setTrim]);
-
-  const cutFirst10 = useCallback(() => {
-    if (duration <= 0) return;
-    const end = Math.min(10, duration);
-    setTrim(file.path, "trimStartSecs", 0);
-    setTrim(file.path, "trimEndSecs", end);
-  }, [duration, file.path, setTrim]);
 
   const commitText = (field: "trimStartSecs" | "trimEndSecs", raw: string) => {
     if (raw.trim() === "") {
@@ -482,18 +497,22 @@ export function TrimEditor({ file }: { file: InputFile }): React.JSX.Element | n
           {duration >= 10.05 && (
             <>
               <button
-                onClick={cutFirst10}
+                onClick={previewFirst10}
                 data-testid={`trim-cut-first-${file.name}`}
-                className="glass-card rounded-xl px-2.5 py-1.5 text-xs font-semibold text-zinc-700 hover:border-orange-400 hover:text-orange-600 dark:text-zinc-300 transition-all active:scale-95"
+                className="glass-card rounded-xl px-2.5 py-1.5 text-xs font-semibold text-zinc-700 hover:border-orange-400 hover:text-orange-600 dark:text-zinc-300 transition-all active:scale-95 flex items-center gap-1"
+                title={lang === "fa" ? "پیش‌نمایش ۱۰ ثانیه اول بازه انتخاب‌شده" : "Preview first 10s of selection"}
               >
-                {translate(lang, "trimCutFirst10")}
+                <span>▶</span>
+                <span>{translate(lang, "trimCutFirst10")}</span>
               </button>
               <button
-                onClick={cutLast10}
+                onClick={previewLast10}
                 data-testid={`trim-cut-last-${file.name}`}
-                className="glass-card rounded-xl px-2.5 py-1.5 text-xs font-semibold text-zinc-700 hover:border-orange-400 hover:text-orange-600 dark:text-zinc-300 transition-all active:scale-95"
+                className="glass-card rounded-xl px-2.5 py-1.5 text-xs font-semibold text-zinc-700 hover:border-orange-400 hover:text-orange-600 dark:text-zinc-300 transition-all active:scale-95 flex items-center gap-1"
+                title={lang === "fa" ? "پیش‌نمایش ۱۰ ثانیه آخر بازه انتخاب‌شده" : "Preview last 10s of selection"}
               >
-                {translate(lang, "trimCutLast10")}
+                <span>▶</span>
+                <span>{translate(lang, "trimCutLast10")}</span>
               </button>
             </>
           )}

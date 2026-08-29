@@ -13,8 +13,14 @@ pub fn clear_reserved_paths() {
     }
 }
 
+const WINDOWS_RESERVED: &[&str] = &[
+    "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8",
+    "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+];
+
 /// Remove characters illegal in a single path component on any platform,
-/// while preserving Unicode (e.g. Persian filenames stay intact).
+/// while preserving Unicode (e.g. Persian filenames stay intact) and protecting
+/// against Windows reserved device names (CON, NUL, AUX, etc.).
 pub fn sanitize_component(name: &str) -> String {
     let cleaned: String = name
         .chars()
@@ -25,6 +31,8 @@ pub fn sanitize_component(name: &str) -> String {
     let trimmed = cleaned.trim().trim_end_matches('.').trim();
     if trimmed.is_empty() {
         "output".to_string()
+    } else if WINDOWS_RESERVED.contains(&trimmed.to_uppercase().as_str()) {
+        format!("{trimmed}_audio")
     } else {
         trimmed.to_string()
     }
@@ -152,6 +160,8 @@ mod tests {
         assert_eq!(sanitize_component("bad:name*here?"), "badnamehere");
         assert_eq!(sanitize_component("  "), "output");
         assert_eq!(sanitize_component("trailing."), "trailing");
+        assert_eq!(sanitize_component("CON"), "CON_audio");
+        assert_eq!(sanitize_component("nul"), "nul_audio");
     }
 
     #[test]

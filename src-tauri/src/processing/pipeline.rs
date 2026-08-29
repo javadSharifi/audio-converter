@@ -14,6 +14,8 @@ use crate::types::{AudioFormat, ConversionOptions, JobEvent, JobStatus, TrimSpec
 pub type Emitter = Arc<dyn Fn(JobEvent) + Send + Sync>;
 
 const ENCODE_PHASE_START: f64 = 15.0;
+const DISK_HEADROOM_SAFETY_BYTES: u64 = 8 * 1024 * 1024; // 8 MB safety headroom
+const PROGRESS_POLL_INTERVAL: Duration = Duration::from_millis(250);
 
 /// Result of one completed job.
 #[derive(Debug)]
@@ -277,7 +279,7 @@ pub fn run_job(
     }
 
     // ---- Phase 4: disk space check BEFORE encoding --------------------------
-    let est = disk::estimate_output_bytes(options.effective_bitrate(), post_total) + 8_388_608;
+    let est = disk::estimate_output_bytes(options.effective_bitrate(), post_total) + DISK_HEADROOM_SAFETY_BYTES;
     if let Some(free) = disk::free_bytes(finals[0].parent().unwrap_or(Path::new("."))) {
         if free < est {
             return Err(AppError::InsufficientDiskSpace {
@@ -360,7 +362,7 @@ pub fn run_job(
                         Some(speed),
                         warn.clone(),
                     ));
-                    std::thread::sleep(Duration::from_millis(250));
+                    std::thread::sleep(PROGRESS_POLL_INTERVAL);
                 }
             })
         };

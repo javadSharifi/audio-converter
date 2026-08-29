@@ -162,7 +162,7 @@ impl RunSpec {
         });
 
         // ---- poll loop ---------------------------------------------------
-        loop {
+        let exit_status = loop {
             if self.cancel.is_cancelled() {
                 let mut guard = self.cancel.inner.child.lock().unwrap();
                 if let Some(c) = guard.as_mut() {
@@ -184,18 +184,17 @@ impl RunSpec {
                     None => None,
                 }
             };
-            if done.is_some() {
-                break;
+            if let Some(status) = done {
+                break status;
             }
             std::thread::sleep(Duration::from_millis(60));
-        }
+        };
 
         let (code, final_tail) = {
             let mut guard = self.cancel.inner.child.lock().unwrap();
-            let status = guard.as_mut().and_then(|c| c.wait().ok());
-            let t: Vec<String> = tail.lock().unwrap().iter().cloned().collect();
             *guard = None;
-            (status.and_then(|s| s.code()), t)
+            let t: Vec<String> = tail.lock().unwrap().iter().cloned().collect();
+            (exit_status.code(), t)
         };
         let _ = out_thread.join();
         let _ = err_thread.join();

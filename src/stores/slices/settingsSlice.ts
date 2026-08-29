@@ -1,0 +1,82 @@
+import type { StateCreator } from "zustand";
+import type { AppSettings, ConversionOptions } from "../../types";
+import type { Lang } from "../../i18n";
+import type { ToastSlice } from "./toastSlice";
+import * as api from "../../utils/tauri";
+
+export interface SettingsSlice {
+  settings: AppSettings | null;
+  options: ConversionOptions;
+  lang: Lang;
+  theme: "light" | "dark" | "system";
+
+  updateOptions: (patch: Partial<ConversionOptions>) => void;
+  loadSettings: () => Promise<void>;
+  updateSettings: (patch: Partial<AppSettings>) => void;
+  persistSettings: () => Promise<void>;
+}
+
+export const defaultOptions: ConversionOptions = {
+  format: "mp3",
+  quality: "medium",
+  customBitrateKbps: null,
+  sampleRateHz: 44100,
+  channels: 2,
+  splitEnabled: false,
+  splitDurationSecs: 600,
+  removeSilence: false,
+  silenceThresholdDb: -30,
+  silenceMinDurationSecs: 2,
+  outputMode: "same_as_source",
+  customOutputDir: null,
+};
+
+export const createSettingsSlice: StateCreator<
+  SettingsSlice & ToastSlice,
+  [],
+  [],
+  SettingsSlice
+> = (set, get) => ({
+  settings: null,
+  options: defaultOptions,
+  lang: "en",
+  theme: "system",
+
+  updateOptions(patch) {
+    set((s) => ({ options: { ...s.options, ...patch } }));
+  },
+
+  async loadSettings() {
+    const settings = await api.getSettings();
+    set({
+      settings,
+      lang: settings.language,
+      theme: settings.theme,
+      options: {
+        ...get().options,
+        format: settings.defaultFormat,
+        quality: settings.defaultQuality,
+        removeSilence: settings.removeSilenceDefault,
+        silenceThresholdDb: settings.silenceThresholdDb,
+        silenceMinDurationSecs: settings.silenceMinDurationSecs,
+        outputMode: settings.defaultOutputMode,
+        customOutputDir: settings.defaultOutputDir,
+      },
+    });
+  },
+
+  updateSettings(patch) {
+    set((s) => ({
+      settings: s.settings ? { ...s.settings, ...patch } : (patch as AppSettings),
+    }));
+    if (patch.language) set({ lang: patch.language });
+    if (patch.theme) set({ theme: patch.theme });
+  },
+
+  async persistSettings() {
+    const { settings } = get();
+    if (!settings) return;
+    await api.saveSettings(settings);
+    get().pushToast("info", "settingsSaved");
+  },
+});

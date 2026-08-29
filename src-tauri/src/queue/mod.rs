@@ -28,8 +28,8 @@ pub struct JobRecord {
 struct QueueInner {
     app: AppHandle,
     jobs: Mutex<HashMap<String, JobRecord>>,
-    /// FIFO of pending work: (job id, source path, optional trim window).
-    order: Mutex<VecDeque<(String, PathBuf, Option<TrimSpec>)>>,
+    /// FIFO of pending work: (job id, source path, optional trim window, multiple_sources flag).
+    order: Mutex<VecDeque<(String, PathBuf, Option<TrimSpec>, bool)>>,
     tokens: Mutex<HashMap<String, CancelToken>>,
     active_workers: AtomicUsize,
     shutting_down: AtomicBool,
@@ -80,6 +80,7 @@ impl QueueManager {
         self.cancel_all();
         crate::processing::naming::clear_reserved_paths();
 
+        let is_multi = items.len() > 1;
         let mut ids = Vec::with_capacity(items.len());
         let mut fresh_records = Vec::with_capacity(items.len());
         {
@@ -115,7 +116,7 @@ impl QueueManager {
                 jobs.insert(id.clone(), rec.clone());
                 tokens.insert(id.clone(), CancelToken::new());
                 fresh_records.push(rec);
-                order.push_back((id.clone(), source, trim));
+                order.push_back((id.clone(), source, trim, is_multi));
                 ids.push(id);
             }
         }
@@ -261,7 +262,7 @@ fn worker_loop(inner: Arc<QueueInner>, options: ConversionOptions) {
             break;
         }
         let next = inner.order.lock().unwrap().pop_front();
-        let Some((job_id, source, trim)) = next else { break };
+        let Some((job_id, source, trim, multiple_sources)) = next else { break };
 
         // Per-job token: cancel(job_id) kills only this file.
         let Some(token) = inner.tokens.lock().unwrap().get(&job_id).cloned() else {
@@ -299,12 +300,6 @@ fn worker_loop(inner: Arc<QueueInner>, options: ConversionOptions) {
                     }
                 });
             })
-        };
-
-        let multiple_sources = {
-            // Approximation at planning time; naming only depends on it when
-            // CustomFolder mode is active.
-            inner.order.lock().unwrap().len() + 1 > 1
         };
 
         let result = pipeline::run_job(

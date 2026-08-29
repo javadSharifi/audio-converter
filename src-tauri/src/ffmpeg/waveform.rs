@@ -86,10 +86,9 @@ pub fn extract_peaks(
         .spawn()
         .map_err(|e| AppError::Io(format!("Failed to launch ffmpeg: {e}")))?;
 
-    // Cap capture to ~5 minutes of 16 kHz mono (9.6 MB); longer inputs are
-    // still analyzed, just truncated — irrelevant for a visual aid.
-    const CAP_BYTES: usize = 2 * DECODE_RATE as usize * 300;
-    let mut pcm: Vec<u8> = Vec::with_capacity(CAP_BYTES.min(1 << 20));
+    // Read entire audio stream (capped at a generous safety limit of 4 hours ~460MB)
+    const MAX_SAFETY_BYTES: usize = 2 * DECODE_RATE as usize * 14_400; // 4 hours
+    let mut pcm: Vec<u8> = Vec::new();
     let mut stdout = child
         .stdout
         .take()
@@ -99,9 +98,9 @@ pub fn extract_peaks(
         match stdout.read(&mut buf) {
             Ok(0) => break,
             Ok(n) => {
-                let take = n.min(CAP_BYTES.saturating_sub(pcm.len()));
+                let take = n.min(MAX_SAFETY_BYTES.saturating_sub(pcm.len()));
                 pcm.extend_from_slice(&buf[..take]);
-                if pcm.len() >= CAP_BYTES {
+                if pcm.len() >= MAX_SAFETY_BYTES {
                     let _ = child.kill();
                     break;
                 }
