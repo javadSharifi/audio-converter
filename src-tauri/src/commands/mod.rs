@@ -17,6 +17,11 @@ use crate::types::{ConversionOptions, FileMeta, TrimSpec};
 #[specta::specta]
 pub async fn probe_files(paths: Vec<String>) -> Vec<FileMeta> {
     tauri::async_runtime::spawn_blocking(move || {
+        let paths: Vec<String> = paths
+            .into_iter()
+            .map(|p| crate::android_fs::ensure_local_path(&p))
+            .collect();
+
         let Ok(ffprobe) = crate::ffmpeg::locate::locate("ffprobe") else {
             return paths
                 .into_iter()
@@ -112,6 +117,7 @@ fn file_name_of(path: &str) -> String {
 #[tauri::command]
 #[specta::specta]
 pub async fn waveform_peaks(path: String, buckets: Option<u32>) -> Result<Vec<[f32; 2]>> {
+    let path = crate::android_fs::ensure_local_path(&path);
     let buckets = (buckets.unwrap_or(1000) as usize).clamp(16, 4000);
     tauri::async_runtime::spawn_blocking(move || {
         let ffmpeg = crate::ffmpeg::locate::ffmpeg_path()
@@ -136,6 +142,10 @@ pub async fn start_conversion(
 ) -> Result<Vec<String>> {
     if items.is_empty() {
         return Err(AppError::InvalidInput("No input files selected".into()));
+    }
+    let mut items = items;
+    for item in &mut items {
+        item.path = crate::android_fs::ensure_local_path(&item.path);
     }
     options.validate()?;
     for item in &items {

@@ -166,6 +166,12 @@ jobs:
           EOF
           sed -i 's/<application/<application android:extractNativeLibs="true"/' src-tauri/gen/android/app/src/main/AndroidManifest.xml || true
           
+          # Copy customized MainActivity.kt with dynamic nativeLibraryDir and URI staging
+          if [ -f "src-tauri/android/MainActivity.kt" ]; then
+            mkdir -p src-tauri/gen/android/app/src/main/java/com/audioconverter/app
+            cp -f src-tauri/android/MainActivity.kt src-tauri/gen/android/app/src/main/java/com/audioconverter/app/MainActivity.kt
+          fi
+          
           # Copy FFmpeg and FFprobe into jniLibs as lib*.so so Gradle packages them into lib/arm64-v8a/
           mkdir -p src-tauri/gen/android/app/src/main/jniLibs/arm64-v8a
           cp -f src-tauri/binaries/ffmpeg-aarch64-linux-android src-tauri/gen/android/app/src/main/jniLibs/arm64-v8a/libffmpeg.so

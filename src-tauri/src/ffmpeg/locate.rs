@@ -27,11 +27,14 @@ pub fn locate(name: &str) -> Result<PathBuf, crate::error::AppError> {
     {
         // On Android, externalBin binaries are packaged in nativeLibraryDir as lib<name>.so.
         let so_name = format!("lib{name}.so");
+        let mut checked = Vec::new();
 
-        // 1. Check custom env var if injected by MainActivity
+        // 1. Check custom env var if injected by MainActivity (TAURI_ANDROID_NATIVE_LIB_DIR)
         if let Ok(lib_dir) = std::env::var("TAURI_ANDROID_NATIVE_LIB_DIR") {
-            let candidate = PathBuf::from(lib_dir).join(&so_name);
+            let candidate = PathBuf::from(&lib_dir).join(&so_name);
+            checked.push(candidate.display().to_string());
             if candidate.exists() {
+                crate::log_info!("Android locate {name}: FOUND via TAURI_ANDROID_NATIVE_LIB_DIR at {}", candidate.display());
                 return Ok(candidate);
             }
         }
@@ -42,25 +45,33 @@ pub fn locate(name: &str) -> Result<PathBuf, crate::error::AppError> {
             "/data/user/0/com.audioconverter.app/lib",
         ] {
             let candidate = PathBuf::from(base).join(&so_name);
+            checked.push(candidate.display().to_string());
             if candidate.exists() {
+                crate::log_info!("Android locate {name}: FOUND at {}", candidate.display());
                 return Ok(candidate);
             }
         }
 
-        // 3. Scan /data/app for package native library dir
-        if let Ok(entries) = std::fs::read_dir("/data/app") {
-            for entry in entries.flatten() {
-                let name_str = entry.file_name().to_string_lossy().into_owned();
-                if name_str.contains("com.audioconverter.app") {
-                    for arch in ["arm64", "arm64-v8a", "arm", "armeabi-v7a", "x86_64", "x86"] {
-                        let candidate = entry.path().join("lib").join(arch).join(&so_name);
-                        if candidate.exists() {
-                            return Ok(candidate);
-                        }
-                    }
+        // 3. Check next to running executable if available
+        if let Ok(exe) = std::env::current_exe() {
+            if let Some(dir) = exe.parent() {
+                let candidate = dir.join(&so_name);
+                checked.push(candidate.display().to_string());
+                if candidate.exists() {
+                    crate::log_info!("Android locate {name}: FOUND next to exe at {}", candidate.display());
+                    return Ok(candidate);
                 }
             }
         }
+
+        crate::log_error!(
+            "Android locate {name} FAILED! None of the candidates exist: {:?}",
+            checked
+        );
+
+        return Err(crate::error::AppError::NotFound(format!(
+            "Bundled {name} binary (searched {so_name} in {checked:?}) is missing"
+        )));
     }
 
     if let Ok(exe) = std::env::current_exe() {

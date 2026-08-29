@@ -1,3 +1,4 @@
+pub mod android_fs;
 mod commands;
 pub mod disk;
 pub mod error;
@@ -7,6 +8,29 @@ pub mod processing;
 pub mod queue;
 pub mod settings;
 pub mod types;
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub extern "C" fn Java_com_audioconverter_app_MainActivity_initNativePaths(
+    mut env: jni::JNIEnv,
+    _class: jni::objects::JClass,
+    native_lib_dir: jni::objects::JString,
+    cache_dir: jni::objects::JString,
+) {
+    if let Ok(vm) = env.get_java_vm() {
+        android_fs::set_java_vm(vm);
+    }
+    if let Ok(dir) = env.get_string(&native_lib_dir) {
+        let dir_str: String = dir.into();
+        std::env::set_var("TAURI_ANDROID_NATIVE_LIB_DIR", &dir_str);
+        log_info!("Android JNI: TAURI_ANDROID_NATIVE_LIB_DIR={}", dir_str);
+    }
+    if let Ok(dir) = env.get_string(&cache_dir) {
+        let dir_str: String = dir.into();
+        std::env::set_var("TAURI_ANDROID_CACHE_DIR", &dir_str);
+        log_info!("Android JNI: TAURI_ANDROID_CACHE_DIR={}", dir_str);
+    }
+}
 
 use tauri::{Manager, RunEvent};
 
