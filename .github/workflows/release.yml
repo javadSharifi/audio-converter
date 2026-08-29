@@ -151,7 +151,76 @@ jobs:
           ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
         run: |
           pnpm tauri android init
+          # Apply Android icons to project
+          if [ -d "src-tauri/icons/android" ]; then
+            cp -rf src-tauri/icons/android/* src-tauri/gen/android/app/src/main/res/ || true
+          fi
+          # Ensure strings.xml has proper app name
+          mkdir -p src-tauri/gen/android/app/src/main/res/values
+          cat << 'EOF' > src-tauri/gen/android/app/src/main/res/values/strings.xml
+          <resources>
+              <string name="app_name">Audio Converter</string>
+              <string name="default_notification_channel_id">audio_converter_notifications</string>
+          </resources>
+          EOF
           pnpm tauri android build --apk --target aarch64
+
+      - name: Sign Android APK
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          APKSIGNER=$(find $ANDROID_HOME/build-tools -name apksigner | sort -V | tail -n 1)
+          echo "Using apksigner at: $APKSIGNER"
+
+          KS_PATH="$RUNNER_TEMP/release.keystore"
+          KS_PASS="${KEYSTORE_PASSWORD:-audioconverter123}"
+          K_ALIAS="${KEY_ALIAS:-audioconverter}"
+          K_PASS="${KEY_PASSWORD:-audioconverter123}"
+
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "Decoding repository secret keystore..."
+            echo "$KEYSTORE_BASE64" | base64 --decode > "$KS_PATH"
+          else
+            echo "Generating release keystore in CI..."
+            keytool -genkeypair -v \
+              -keystore "$KS_PATH" \
+              -alias "$K_ALIAS" \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -storepass "$KS_PASS" \
+              -keypass "$K_PASS" \
+              -dname "CN=Audio Converter, OU=App, O=AudioConverter, L=Tehran, C=IR"
+          fi
+
+          UNSIGNED_APK=$(find src-tauri/gen/android/app/build/outputs/apk -type f -name "*unsigned.apk" | head -n 1)
+          if [ -z "$UNSIGNED_APK" ]; then
+            echo "No unsigned APK found to sign."
+            exit 0
+          fi
+
+          OUT_APK="$(dirname "$UNSIGNED_APK")/AudioConverter-android-arm64.apk"
+          echo "Signing $UNSIGNED_APK -> $OUT_APK"
+
+          "$APKSIGNER" sign \
+            --ks "$KS_PATH" \
+            --ks-key-alias "$K_ALIAS" \
+            --ks-pass "pass:$KS_PASS" \
+            --key-pass "pass:$K_PASS" \
+            --v1-signing-enabled true \
+            --v2-signing-enabled true \
+            --v3-signing-enabled true \
+            --out "$OUT_APK" \
+            "$UNSIGNED_APK"
+
+          echo "Verifying signed APK signature:"
+          "$APKSIGNER" verify --verbose "$OUT_APK"
+
+          # Remove unsigned APK so only the signed release APK is uploaded
+          rm -f "$UNSIGNED_APK"
 
       - name: Upload Android APK
         uses: actions/upload-artifact@v4
