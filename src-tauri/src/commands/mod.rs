@@ -9,6 +9,20 @@ use crate::queue::{JobRecord, QueueManager};
 use crate::settings::Settings;
 use crate::types::{ConversionOptions, FileMeta, TrimSpec};
 
+/// Pre-resolve media paths (e.g. Android Content URIs to cached files)
+#[tauri::command]
+#[specta::specta]
+pub async fn resolve_media_paths(paths: Vec<String>) -> Vec<String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        paths
+            .into_iter()
+            .map(|p| crate::android_fs::ensure_local_path(&p))
+            .collect()
+    })
+    .await
+    .unwrap_or_default()
+}
+
 /// Probe files for the UI list. Per-file errors land in `FileMeta.error`
 /// instead of failing the whole call.
 /// Probe files for the UI list in parallel across threads. Per-file errors land in `FileMeta.error`

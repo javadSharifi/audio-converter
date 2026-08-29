@@ -11,6 +11,8 @@
     "fetch:ffmpeg": "node scripts/fetch-ffmpeg.mjs",
     "generate:types": "cargo run --bin export_types --manifest-path src-tauri/Cargo.toml",
     "check:types": "cargo run --bin export_types --manifest-path src-tauri/Cargo.toml && git diff --exit-code src/types/generated.ts",
+    "build:android": "bash scripts/build-android-local.sh",
+    "build:android:debug": "bash scripts/build-android-local.sh --debug",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml"
@@ -18,6 +20,7 @@
   "dependencies": {
     "@tauri-apps/api": "^2.9.0",
     "@tauri-apps/plugin-dialog": "^2.4.0",
+    "@tauri-apps/plugin-fs": "^2.4.0",
     "@tauri-apps/plugin-opener": "^2.5.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",

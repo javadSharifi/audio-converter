@@ -23,6 +23,10 @@ function formatAppError(err: unknown): string {
   return String(err);
 }
 
+export async function resolveMediaPaths(paths: string[]): Promise<string[]> {
+  return commands.resolveMediaPaths(paths);
+}
+
 export async function probeFiles(paths: string[]): Promise<FileMeta[]> {
   return commands.probeFiles(paths);
 }

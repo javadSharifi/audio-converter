@@ -28,7 +28,8 @@ export const createFileSlice: StateCreator<
     set({ probing: true });
     const baseName = (p: string) => p.split(/[\\/]/).pop() ?? p;
     try {
-      const metas = await api.probeFiles(paths);
+      const resolvedPaths = await api.resolveMediaPaths(paths);
+      const metas = await api.probeFiles(resolvedPaths);
       // Dedupe AFTER the await against current state — overlapping calls
       // (rapid drops, double dialog submit) must not create dup rows.
       set((s) => {

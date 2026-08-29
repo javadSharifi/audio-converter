@@ -36,6 +36,7 @@ use tauri::{Manager, RunEvent};
 
 pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
     tauri_specta::Builder::<tauri::Wry>::new().commands(tauri_specta::collect_commands![
+        commands::resolve_media_paths,
         commands::probe_files,
         commands::start_conversion,
         commands::waveform_peaks,
@@ -72,6 +73,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             let data_dir = app

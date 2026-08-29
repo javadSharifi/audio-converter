@@ -7,6 +7,8 @@ import { invoke as __TAURI_INVOKE } from "@tauri-apps/api/core";
 
 /** Commands */
 export const commands = {
+	/**  Pre-resolve media paths (e.g. Android Content URIs to cached files) */
+	resolveMediaPaths: (paths: string[]) => __TAURI_INVOKE<string[]>("resolve_media_paths", { paths }),
 	/**
 	 *  Probe files for the UI list. Per-file errors land in `FileMeta.error`
 	 *  instead of failing the whole call.
