@@ -23,6 +23,46 @@ pub fn locate(name: &str) -> Result<PathBuf, crate::error::AppError> {
         )));
     }
 
+    #[cfg(target_os = "android")]
+    {
+        // On Android, externalBin binaries are packaged in nativeLibraryDir as lib<name>.so.
+        let so_name = format!("lib{name}.so");
+
+        // 1. Check custom env var if injected by MainActivity
+        if let Ok(lib_dir) = std::env::var("TAURI_ANDROID_NATIVE_LIB_DIR") {
+            let candidate = PathBuf::from(lib_dir).join(&so_name);
+            if candidate.exists() {
+                return Ok(candidate);
+            }
+        }
+
+        // 2. Check standard Android app lib paths
+        for base in [
+            "/data/data/com.audioconverter.app/lib",
+            "/data/user/0/com.audioconverter.app/lib",
+        ] {
+            let candidate = PathBuf::from(base).join(&so_name);
+            if candidate.exists() {
+                return Ok(candidate);
+            }
+        }
+
+        // 3. Scan /data/app for package native library dir
+        if let Ok(entries) = std::fs::read_dir("/data/app") {
+            for entry in entries.flatten() {
+                let name_str = entry.file_name().to_string_lossy().into_owned();
+                if name_str.contains("com.audioconverter.app") {
+                    for arch in ["arm64", "arm64-v8a", "arm", "armeabi-v7a", "x86_64", "x86"] {
+                        let candidate = entry.path().join("lib").join(arch).join(&so_name);
+                        if candidate.exists() {
+                            return Ok(candidate);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
             #[cfg(windows)]

@@ -93,29 +93,20 @@ async function main() {
   mkdirSync(BIN_DIR, { recursive: true });
 
   if (triple.includes("android")) {
-    const ndkBin = process.env.NDK_HOME
-      ? path.join(process.env.NDK_HOME, "toolchains/llvm/prebuilt/linux-x86_64/bin")
-      : "";
-    let clang = "clang";
-    if (ndkBin) {
-      for (const ver of ["34", "33", "30", "28", "26", "24", "21"]) {
-        const candidate = path.join(ndkBin, `aarch64-linux-android${ver}-clang`);
-        if (existsSync(candidate)) {
-          clang = candidate;
-          break;
-        }
-      }
-    }
-    const src = path.join(os.tmpdir(), "stub.c");
-    const { writeFileSync, chmodSync } = await import("node:fs");
-    writeFileSync(src, "#include <stdio.h>\nint main(int argc, char** argv){ return 0; }\n");
+    execSync("bash scripts/build-ffmpeg-minimal.sh", {
+      stdio: "inherit",
+      env: { ...process.env, TARGET_TRIPLE: triple },
+    });
+    const paths = {
+      ffmpeg: path.join(BIN_DIR, "build-minimal-android", "bin", "ffmpeg"),
+      ffprobe: path.join(BIN_DIR, "build-minimal-android", "bin", "ffprobe"),
+    };
     for (const name of ["ffmpeg", "ffprobe"]) {
-      const dest = path.join(BIN_DIR, `${name}-${triple}`);
-      try {
-        execSync(`${JSON.stringify(clang)} -O2 -o ${JSON.stringify(dest)} ${JSON.stringify(src)}`, { stdio: "inherit" });
-      } catch {
-        writeFileSync(dest, "#!/bin/sh\nexit 0\n");
+      if (!existsSync(paths[name])) {
+        throw new Error(`Expected ${paths[name]} to exist after build`);
       }
+      const dest = path.join(BIN_DIR, `${name}-${triple}`);
+      execSync(`cp ${JSON.stringify(paths[name])} ${JSON.stringify(dest)}`);
       try { chmodSync(dest, 0o755); } catch {}
       console.log(`installed ${dest}`);
     }

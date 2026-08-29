@@ -164,6 +164,7 @@ jobs:
               <string name="default_notification_channel_id">audio_converter_notifications</string>
           </resources>
           EOF
+          sed -i 's/<application/<application android:extractNativeLibs="true"/' src-tauri/gen/android/app/src/main/AndroidManifest.xml || true
           pnpm tauri android build --apk --target aarch64
 
       - name: Sign Android APK
