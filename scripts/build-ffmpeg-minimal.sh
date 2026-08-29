@@ -142,6 +142,9 @@ build_ffmpeg() {
       && make -j"$JOBS" && make install) \
     || { echo "=== FFMPEG BUILD FAILED — config.log tail ==="; tail -40 "$CACHE/ffmpeg/ffbuild/config.log" 2>/dev/null; exit 1; }
   fi
+  echo "ffmpeg: built"
+}
+
 build_lame
 build_opus
 build_ffmpeg
