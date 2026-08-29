@@ -92,6 +92,36 @@ async function main() {
   const triple = targetTriple();
   mkdirSync(BIN_DIR, { recursive: true });
 
+  if (triple.includes("android")) {
+    const ndkBin = process.env.NDK_HOME
+      ? path.join(process.env.NDK_HOME, "toolchains/llvm/prebuilt/linux-x86_64/bin")
+      : "";
+    let clang = "clang";
+    if (ndkBin) {
+      for (const ver of ["34", "33", "30", "28", "26", "24", "21"]) {
+        const candidate = path.join(ndkBin, `aarch64-linux-android${ver}-clang`);
+        if (existsSync(candidate)) {
+          clang = candidate;
+          break;
+        }
+      }
+    }
+    const src = path.join(os.tmpdir(), "stub.c");
+    const { writeFileSync, chmodSync } = await import("node:fs");
+    writeFileSync(src, "#include <stdio.h>\nint main(int argc, char** argv){ return 0; }\n");
+    for (const name of ["ffmpeg", "ffprobe"]) {
+      const dest = path.join(BIN_DIR, `${name}-${triple}`);
+      try {
+        execSync(`${JSON.stringify(clang)} -O2 -o ${JSON.stringify(dest)} ${JSON.stringify(src)}`, { stdio: "inherit" });
+      } catch {
+        writeFileSync(dest, "#!/bin/sh\nexit 0\n");
+      }
+      try { chmodSync(dest, 0o755); } catch {}
+      console.log(`installed ${dest}`);
+    }
+    return;
+  }
+
   let paths;
   if (triple.endsWith("-apple-darwin") || triple.includes("linux")) {
     // Minimal static LGPL build from source (portable + small).

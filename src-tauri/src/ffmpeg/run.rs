@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -108,17 +108,12 @@ impl RunSpec {
             summarize_args(&self.args)
         );
 
-        let mut command = Command::new(&self.program);
+        let mut command = crate::ffmpeg::create_hidden_command(&self.program);
         command
             .args(&self.args)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        #[cfg(windows)]
-        {
-            use std::os::windows::process::CommandExt;
-            command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
-        }
 
         let mut spawned = command.spawn().map_err(|e| {
             AppError::FFmpeg(format!("Failed to launch {}: {e}", self.program.display()))

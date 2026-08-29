@@ -1,4 +1,4 @@
-import type { AudioFormat, ConversionOptions, InputFile } from "../types";
+import type { AudioFormat, ConversionOptions, InputFile, QualityPreset } from "../types";
 import { isLossy } from "../types";
 
 /**
@@ -10,17 +10,30 @@ export function estimateKbps(
   format: AudioFormat,
   options: Pick<ConversionOptions, "quality" | "customBitrateKbps">,
 ): number {
-  const q = options.quality;
+  const q: QualityPreset = options.quality ?? "medium";
   const custom = options.customBitrateKbps;
+  const mp3Rates: Record<Exclude<QualityPreset, "custom">, number> = {
+    low: 96,
+    medium: 192,
+    high: 256,
+    very_high: 320,
+  };
+  const otherRates: Record<Exclude<QualityPreset, "custom">, number> = {
+    low: 64,
+    medium: 128,
+    high: 192,
+    very_high: 256,
+  };
+
   switch (format) {
     case "wav":
       return 1411;
     case "flac":
       return 900;
     case "mp3":
-      return q === "custom" ? custom ?? 192 : { low: 96, medium: 192, high: 256, very_high: 320 }[q] ?? 192;
+      return q === "custom" ? custom ?? 192 : mp3Rates[q] ?? 192;
     default: // aac / m4a / opus
-      return q === "custom" ? custom ?? 128 : { low: 64, medium: 128, high: 192, very_high: 256 }[q] ?? 128;
+      return q === "custom" ? custom ?? 128 : otherRates[q] ?? 128;
   }
 }
 
@@ -29,12 +42,13 @@ export function estimateKbps(
  * clamped to the file duration — mirrors the backend's post-trim planning.
  */
 function effectiveDuration(file: InputFile): number {
+  const total = file.durationSecs ?? 0;
   const start =
-    file.trimStartSecs != null ? Math.min(Math.max(0, file.trimStartSecs), file.durationSecs) : 0;
+    file.trimStartSecs != null ? Math.min(Math.max(0, file.trimStartSecs), total) : 0;
   const end =
     file.trimEndSecs != null && file.trimEndSecs > 0
-      ? Math.min(file.trimEndSecs, file.durationSecs)
-      : file.durationSecs;
+      ? Math.min(file.trimEndSecs, total)
+      : total;
   return Math.max(0, end - start);
 }
 

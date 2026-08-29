@@ -61,7 +61,7 @@ pub fn extract_peaks(
         return Err(AppError::NotFound(format!("File does not exist: {path}")));
     }
 
-    let mut child = std::process::Command::new(ffmpeg)
+    let mut child = crate::ffmpeg::create_hidden_command(ffmpeg)
         .args([
             "-hide_banner",
             "-nostdin",
@@ -86,16 +86,17 @@ pub fn extract_peaks(
         .spawn()
         .map_err(|e| AppError::Io(format!("Failed to launch ffmpeg: {e}")))?;
 
-    // Read entire audio stream (capped at a generous safety limit of 4 hours ~460MB)
-    const MAX_SAFETY_BYTES: usize = 2 * DECODE_RATE as usize * 14_400; // 4 hours
+    // Read audio stream with buffered IO (up to 30 mins / 96MB for instant visual waveform)
+    const MAX_SAFETY_BYTES: usize = 2 * DECODE_RATE as usize * 1800; // 30 mins
     let mut pcm: Vec<u8> = Vec::new();
-    let mut stdout = child
+    let stdout = child
         .stdout
         .take()
         .ok_or_else(|| AppError::Io("ffmpeg stdout unavailable".into()))?;
+    let mut reader = std::io::BufReader::with_capacity(128 * 1024, stdout);
     let mut buf = [0u8; 65_536];
     loop {
-        match stdout.read(&mut buf) {
+        match reader.read(&mut buf) {
             Ok(0) => break,
             Ok(n) => {
                 let take = n.min(MAX_SAFETY_BYTES.saturating_sub(pcm.len()));

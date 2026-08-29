@@ -1,24 +1,38 @@
-export type AudioFormat = "mp3" | "wav" | "aac" | "m4a" | "flac" | "opus";
-export type QualityPreset = "low" | "medium" | "high" | "very_high" | "custom";
-export type OutputMode = "same_as_source" | "custom_folder" | "per_source_folder";
+import type {
+  AudioFormat,
+  QualityPreset,
+  OutputMode,
+  ConversionOptions as GeneratedConversionOptions,
+  TrimSpec as GeneratedTrimSpec,
+  FileMeta as GeneratedFileMeta,
+  JobRecord,
+  JobStatus,
+  Settings as GeneratedSettings,
+  AppError,
+  DiskFree,
+} from "./generated";
+
+export type {
+  AudioFormat,
+  QualityPreset,
+  OutputMode,
+  JobRecord,
+  JobStatus,
+  AppError,
+  DiskFree,
+};
+
+export type ConversionOptions = GeneratedConversionOptions;
+export type TrimSpec = GeneratedTrimSpec;
+export type FileMeta = GeneratedFileMeta;
+export type QueueItem = JobRecord;
+export type AppSettings = GeneratedSettings & {
+  language: "en" | "fa";
+  theme: "light" | "dark" | "system";
+};
 
 export const LOSSY_FORMATS: AudioFormat[] = ["mp3", "aac", "m4a", "opus"];
 export const LOSSLESS_FORMATS: AudioFormat[] = ["wav", "flac"];
-
-export interface ConversionOptions {
-  format: AudioFormat;
-  quality: QualityPreset;
-  customBitrateKbps: number | null;
-  sampleRateHz: number | null;
-  channels: number | null;
-  splitEnabled: boolean;
-  splitDurationSecs: number;
-  removeSilence: boolean;
-  silenceThresholdDb: number;
-  silenceMinDurationSecs: number;
-  outputMode: OutputMode;
-  customOutputDir: string | null;
-}
 
 export type MediaKind = "audio" | "video";
 
@@ -35,49 +49,6 @@ export interface InputFile {
   /** Optional per-file trim window, seconds. Undefined = whole file. */
   trimStartSecs?: number | null;
   trimEndSecs?: number | null;
-}
-
-/**
- * Per-item payload for start_conversion. Mirrors the Rust `TrimSpec`
- * (camelCase serde): `{ path, startTime, endTime }`, seconds or null.
- */
-export interface TrimSpec {
-  path: string;
-  startTime: number | null;
-  endTime: number | null;
-}
-
-/** Mirrors backend FileMeta (camelCase serde). */
-export type FileMeta = InputFile;
-
-export type JobStatus = "waiting" | "processing" | "completed" | "failed" | "cancelled";
-
-/** Mirrors backend JobRecord (camelCase serde). */
-export interface QueueItem {
-  id: string;
-  sourcePath: string;
-  status: JobStatus;
-  percent: number | null;
-  speed: string | null;
-  error: string | null;
-  technical: string | null;
-  warning: string | null;
-  outputs: string[];
-}
-
-export interface AppSettings {
-  language: "en" | "fa";
-  theme: "light" | "dark" | "system";
-  defaultFormat: AudioFormat;
-  defaultQuality: QualityPreset;
-  defaultOutputMode: OutputMode;
-  defaultOutputDir: string | null;
-  autoOpenOutputFolder: boolean;
-  concurrency: number;
-  removeSilenceDefault: boolean;
-  silenceThresholdDb: number;
-  silenceMinDurationSecs: number;
-  ffmpegPathOverride: string | null;
 }
 
 export const MP3_BITRATES = [64, 96, 128, 160, 192, 256, 320] as const;

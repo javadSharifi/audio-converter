@@ -1,12 +1,18 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
+#[serde(tag = "kind", content = "message")]
 pub enum AppError {
     Io(String),
     FFmpeg(String),
     NoAudioTrack(String),
     CorruptedFile(String),
-    InsufficientDiskSpace { needed: u64, available: u64 },
+    InsufficientDiskSpace {
+        #[specta(type = u32)]
+        needed: u64,
+        #[specta(type = u32)]
+        available: u64,
+    },
     InvalidInput(String),
     Cancelled,
     NotFound(String),
@@ -47,34 +53,6 @@ impl From<std::io::Error> for AppError {
 impl From<serde_json::Error> for AppError {
     fn from(e: serde_json::Error) -> Self {
         AppError::Other(format!("Serialization error: {e}"))
-    }
-}
-
-impl Serialize for AppError {
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        #[derive(Serialize)]
-        struct Repr {
-            kind: String,
-            message: String,
-            technical: Option<String>,
-        }
-        let technical = match self {
-            AppError::NoAudioTrack(t) | AppError::CorruptedFile(t) => Some(t.clone()),
-            _ => None,
-        };
-        let repr = Repr {
-            kind: format!("{self:?}")
-                .split('(')
-                .next()
-                .unwrap_or("Error")
-                .to_string(),
-            message: self.to_string(),
-            technical,
-        };
-        serde::Serialize::serialize(&repr, serializer)
     }
 }
 

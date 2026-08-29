@@ -542,8 +542,15 @@ export function TrimEditor({ file }: { file: InputFile }): React.JSX.Element | n
       >
         <canvas ref={canvasRef} className="h-full w-full touch-none rounded-xl" />
         {!peaks && !waveErr && (
-          <div className="absolute inset-0 flex items-center justify-center text-xs font-medium text-zinc-400 animate-pulse">
-            {translate(lang, "trimLoading")}
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-xs font-medium text-zinc-400">
+            <div className="flex items-center gap-1">
+              <span className="h-4 w-1 rounded-full bg-orange-500/60 animate-[pulse_1s_ease-in-out_infinite]" />
+              <span className="h-6 w-1 rounded-full bg-orange-500/80 animate-[pulse_1s_ease-in-out_0.2s_infinite]" />
+              <span className="h-8 w-1 rounded-full bg-orange-500 animate-[pulse_1s_ease-in-out_0.4s_infinite]" />
+              <span className="h-5 w-1 rounded-full bg-orange-500/70 animate-[pulse_1s_ease-in-out_0.6s_infinite]" />
+              <span className="h-3 w-1 rounded-full bg-orange-500/50 animate-[pulse_1s_ease-in-out_0.8s_infinite]" />
+            </div>
+            <span className="animate-pulse">{translate(lang, "trimLoading")}</span>
           </div>
         )}
         {waveErr && (

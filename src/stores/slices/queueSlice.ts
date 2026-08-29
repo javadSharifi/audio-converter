@@ -61,8 +61,8 @@ export const createQueueSlice: StateCreator<
     // Blank trim fields → nulls so the backend emits no -ss/-to flags at all.
     const items: TrimSpec[] = valid.map((f) => ({
       path: f.path,
-      startTime: f.trimStartSecs ?? null,
-      endTime: f.trimEndSecs ?? null,
+      startTimeSecs: f.trimStartSecs ?? null,
+      endTimeSecs: f.trimEndSecs ?? null,
     }));
     // Fresh run = fresh panel. Purge UI rows.
     set({ starting: true, jobs: new Map() });

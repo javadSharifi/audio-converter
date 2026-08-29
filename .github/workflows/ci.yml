@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  type-check-and-test:
+    name: Type-Safety & Tests (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            install-packages: true
+          - os: macos-14
+          - os: windows-latest
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install Linux system deps
+        if: matrix.install-packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libfuse2 pkg-config
+
+      - name: Install macOS deps
+        if: runner.os == 'macOS'
+        run: brew install lame opus pkg-config
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify Rust-to-TypeScript type sync (Specta)
+        run: |
+          pnpm generate:types
+          pnpm check:types
+
+      - name: Run frontend unit tests
+        run: pnpm test
+
+      - name: Run TypeScript type check & frontend build
+        run: pnpm build
+
+      - name: Run Rust backend tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml

@@ -454,7 +454,7 @@ fn detect_silence(
         "-vn".to_string(),
         "-af".to_string(),
         format!(
-            "silencedetect=noise={}dB:d={}",
+            "aformat=sample_rates=16000:channel_layouts=mono,silencedetect=noise={}dB:d={}",
             options.silence_threshold_db, options.silence_min_duration_secs
         ),
         "-f".to_string(),

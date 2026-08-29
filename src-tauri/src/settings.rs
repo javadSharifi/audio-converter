@@ -20,8 +20,8 @@ pub fn app_data_dir() -> Option<PathBuf> {
         .map(PathBuf::from)
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
-#[serde(default, rename_all = "camelCase")]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, specta::Type)]
+#[serde(rename_all = "camelCase")]
 pub struct Settings {
     pub language: String, // "en" | "fa"
     pub theme: String,    // "light" | "dark" | "system"
@@ -48,7 +48,7 @@ impl Default for Settings {
             default_output_mode: crate::types::OutputMode::SameAsSource,
             default_output_dir: None,
             auto_open_output_folder: false,
-            concurrency: 1,
+            concurrency: default_concurrency(),
             remove_silence_default: false,
             silence_threshold_db: -30,
             silence_min_duration_secs: 2.0,
@@ -117,6 +117,10 @@ pub fn max_reasonable_concurrency() -> u32 {
         .clamp(1, 32)
 }
 
+pub fn default_concurrency() -> u32 {
+    ((max_reasonable_concurrency() / 2).max(1)).min(4)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -125,7 +129,7 @@ mod tests {
     fn defaults_valid() {
         let mut s = Settings::default();
         s.validate().unwrap();
-        assert_eq!(s.concurrency, 1);
+        assert!(s.concurrency >= 1 && s.concurrency <= 4);
     }
 
     #[test]

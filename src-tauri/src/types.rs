@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
 #[serde(rename_all = "lowercase")]
 pub enum AudioFormat {
     Mp3,
@@ -28,7 +28,7 @@ impl AudioFormat {
     }
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, specta::Type)]
 #[serde(rename_all = "snake_case")]
 pub enum QualityPreset {
     Low,
@@ -62,7 +62,7 @@ impl QualityPreset {
 }
 
 /// Where output files are written.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Default)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Default, specta::Type)]
 #[serde(rename_all = "snake_case")]
 pub enum OutputMode {
     /// Next to the source file.
@@ -77,7 +77,7 @@ pub enum OutputMode {
 /// Optional per-file trim window, in seconds. Both bounds optional: a `None`
 /// bound means "until the start/end of the file". Serialized as
 /// `{ path, startTime, endTime }` from the frontend (camelCase, seconds).
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct TrimSpec {
     pub path: String,
@@ -129,8 +129,8 @@ impl TrimSpec {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
-#[serde(default, rename_all = "camelCase")]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, specta::Type)]
+#[serde(rename_all = "camelCase")]
 pub struct ConversionOptions {
     pub format: AudioFormat,
     pub quality: QualityPreset,
@@ -215,7 +215,7 @@ impl ConversionOptions {
 
 use crate::error::{AppError, Result};
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
 #[serde(rename_all = "lowercase")]
 pub enum JobStatus {
     Waiting,
@@ -225,11 +225,12 @@ pub enum JobStatus {
     Cancelled,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct FileMeta {
     pub name: String,
     pub path: String,
+    #[specta(type = u32)]
     pub size_bytes: u64,
     pub duration_secs: f64,
     pub format_name: String,
@@ -238,7 +239,7 @@ pub struct FileMeta {
 }
 
 /// Emitted to frontend on every job state change.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct JobEvent {
     pub id: String,
@@ -256,4 +257,26 @@ pub struct JobEvent {
     pub warning: Option<String>,
     /// Output file paths after success.
     pub outputs: Vec<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn trim_spec_deserializes_start_time_secs() {
+        let json = r#"{"path":"/tmp/b.mp4","startTimeSecs":5.0,"endTimeSecs":20.0}"#;
+        let spec: TrimSpec = serde_json::from_str(json).unwrap();
+        assert_eq!(spec.path, "/tmp/b.mp4");
+        assert_eq!(spec.start_time_secs, Some(5.0));
+        assert_eq!(spec.end_time_secs, Some(20.0));
+    }
+
+    #[test]
+    fn trim_spec_deserializes_nulls_as_none() {
+        let json = r#"{"path":"/tmp/c.mp4","startTimeSecs":null,"endTimeSecs":null}"#;
+        let spec: TrimSpec = serde_json::from_str(json).unwrap();
+        assert_eq!(spec.start_time_secs, None);
+        assert_eq!(spec.end_time_secs, None);
+    }
 }

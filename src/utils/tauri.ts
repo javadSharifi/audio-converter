@@ -1,11 +1,30 @@
-import { invoke } from "@tauri-apps/api/core";
 import { convertFileSrc } from "@tauri-apps/api/core";
+import { commands } from "../types/generated";
 import type { AppSettings, ConversionOptions, FileMeta, QueueItem, TrimSpec } from "../types";
 
-/** Thin typed wrappers over the Rust commands. */
+function formatAppError(err: unknown): string {
+  if (typeof err === "object" && err !== null) {
+    if ("message" in err) {
+      const msg = (err as { message: unknown }).message;
+      if (typeof msg === "string") return msg;
+      if (typeof msg === "object" && msg !== null) {
+        if ("needed" in msg && "available" in msg) {
+          const needed = ((msg as { needed: number }).needed / 1048576).toFixed(1);
+          const available = ((msg as { available: number }).available / 1048576).toFixed(1);
+          return `Not enough disk space. Need about ${needed} MB, only ${available} MB available.`;
+        }
+        return JSON.stringify(msg);
+      }
+    }
+    if ("kind" in err) {
+      return String((err as { kind: unknown }).kind);
+    }
+  }
+  return String(err);
+}
 
 export async function probeFiles(paths: string[]): Promise<FileMeta[]> {
-  return invoke<FileMeta[]>("probe_files", { paths });
+  return commands.probeFiles(paths);
 }
 
 export async function startConversion(
@@ -13,11 +32,11 @@ export async function startConversion(
   options: ConversionOptions,
   concurrency?: number,
 ): Promise<string[]> {
-  return invoke<string[]>("start_conversion", {
-    items,
-    options,
-    concurrency: concurrency ?? null,
-  });
+  const res = await commands.startConversion(items, options, concurrency ?? null);
+  if (res.status === "error") {
+    throw new Error(formatAppError(res.error));
+  }
+  return res.data;
 }
 
 /**
@@ -25,7 +44,11 @@ export async function startConversion(
  * Decoded from the file's first audio stream by the bundled ffmpeg.
  */
 export async function waveformPeaks(path: string, buckets = 1000): Promise<[number, number][]> {
-  return invoke<[number, number][]>("waveform_peaks", { path, buckets: buckets ?? null });
+  const res = await commands.waveformPeaks(path, buckets);
+  if (res.status === "error") {
+    throw new Error(formatAppError(res.error));
+  }
+  return res.data.map(([mn, mx]) => [mn ?? 0, mx ?? 0]);
 }
 
 /** Convert a local path into a streamable asset:// URL (Tauri built-in). */
@@ -34,38 +57,44 @@ export function fileToAssetUrl(filePath: string): Promise<string> {
 }
 
 export async function cancelJob(jobId: string): Promise<void> {
-  await invoke("cancel_job", { jobId });
+  await commands.cancelJob(jobId);
 }
 
 export async function cancelAll(): Promise<void> {
-  await invoke("cancel_all_jobs");
+  await commands.cancelAllJobs();
 }
 
 export async function cancelAllJobs(): Promise<void> {
-  await invoke("cancel_all_jobs");
+  await commands.cancelAllJobs();
 }
 
 export async function clearFinished(): Promise<void> {
-  await invoke("clear_finished");
+  await commands.clearFinished();
 }
 
 export async function getQueue(): Promise<QueueItem[]> {
-  return invoke<QueueItem[]>("get_queue");
+  return commands.getQueue();
 }
 
 export async function getSettings(): Promise<AppSettings> {
-  return invoke<AppSettings>("get_settings");
+  return commands.getSettings() as Promise<AppSettings>;
 }
 
 export async function saveSettings(settings: AppSettings): Promise<void> {
-  await invoke("save_settings", { settings });
+  const res = await commands.saveSettings(settings);
+  if (res.status === "error") {
+    throw new Error(formatAppError(res.error));
+  }
 }
 
 export async function logFrontend(level: "INFO" | "WARN" | "ERROR", msg: string): Promise<void> {
-  await invoke("log_frontend", { level, msg }).catch(() => {});
+  await commands.logFrontend(level, msg).catch(() => {});
 }
 
 export async function diskFree(path: string): Promise<number> {
-  const res = await invoke<{ freeBytes: number }>("disk_free", { path });
-  return res.freeBytes;
+  const res = await commands.diskFree(path);
+  if (res.status === "error") {
+    throw new Error(formatAppError(res.error));
+  }
+  return res.data.free_bytes;
 }

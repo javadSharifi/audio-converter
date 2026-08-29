@@ -66,6 +66,14 @@ jobs:
       - name: Fetch/bundle FFmpeg for this platform (LGPL)
         run: pnpm fetch:ffmpeg
 
+      - name: Verify Rust-to-TypeScript type sync (Specta)
+        run: |
+          pnpm generate:types
+          pnpm check:types
+
+      - name: Run frontend unit tests
+        run: pnpm test
+
       - name: Run Rust tests
         run: cargo test --manifest-path src-tauri/Cargo.toml
 
@@ -120,12 +128,24 @@ jobs:
       - name: Install frontend deps
         run: pnpm install --frozen-lockfile
 
+      - name: Verify Rust-to-TypeScript type sync
+        run: |
+          pnpm generate:types
+          pnpm check:types
+
+      - name: Fetch/bundle FFmpeg for Android target
+        env:
+          TARGET_TRIPLE: aarch64-linux-android
+          NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+        run: pnpm fetch:ffmpeg
+
       - name: Build Android APK
         env:
           NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
         run: |
-          pnpm tauri android init || true
-          pnpm tauri android build --apk --target aarch64 || true
+          pnpm tauri android init
+          pnpm tauri android build --apk --target aarch64
 
       - name: Upload Android APK
         uses: actions/upload-artifact@v4
@@ -133,7 +153,7 @@ jobs:
           name: AudioConverter-android-arm64
           path: |
             src-tauri/gen/android/app/build/outputs/apk/**/*.apk
-          if-no-files-found: warn
+          if-no-files-found: error
 
   release:
     needs: [build, build-android]

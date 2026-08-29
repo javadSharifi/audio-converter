@@ -57,7 +57,7 @@ pub fn probe_file(
     }
 
     // Structured argument array — never a shell string (injection safety).
-    let output = std::process::Command::new(ffprobe)
+    let output = crate::ffmpeg::create_hidden_command(ffprobe)
         .args([
             "-v",
             "quiet",

@@ -11,7 +11,7 @@ use crate::processing::pipeline::{self, Emitter};
 use crate::types::{ConversionOptions, JobEvent, JobStatus, TrimSpec};
 
 /// Snapshot of one job, serialized to the frontend.
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct JobRecord {
     pub id: String,

@@ -33,10 +33,11 @@ export const createFileSlice: StateCreator<
       // (rapid drops, double dialog submit) must not create dup rows.
       set((s) => {
         const existing = new Set(s.files.map((f) => f.path));
-        const fresh = metas
+        const fresh: InputFile[] = metas
           .filter((m) => !existing.has(m.path))
           .map((m) => ({
             ...m,
+            durationSecs: m.durationSecs ?? 0,
             kind: (isAudioPath(m.path) ? "audio" : "video") as InputFile["kind"],
           }));
         if (fresh.length === 0) return {};

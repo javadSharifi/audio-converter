@@ -55,6 +55,29 @@ function JobRow({ job }: { job: QueueItem }): React.JSX.Element {
         </div>
       )}
 
+      {job.status === "completed" && job.outputs && job.outputs.length > 0 && (
+        <div className="mt-2 flex flex-col gap-1 rounded-xl bg-emerald-500/5 p-2 border border-emerald-500/10 dark:bg-emerald-500/10">
+          <div className="flex items-center gap-1.5 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">
+            <span>✓</span>
+            <span>{lang === "fa" ? "فایل‌های خروجی تولیدشده:" : "Output files created:"}</span>
+          </div>
+          <div className="flex flex-col gap-1">
+            {job.outputs.map((outPath, idx) => {
+              const outName = outPath.split(/[\\/]/).pop() ?? outPath;
+              return (
+                <span
+                  key={idx}
+                  className="font-mono text-[10px] text-zinc-700 dark:text-zinc-300 truncate"
+                  title={outPath}
+                >
+                  📄 {outName}
+                </span>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {job.warning && <p className="mt-1.5 text-xs text-amber-600 dark:text-amber-400">{translate(lang, "warnAllSilent")}</p>}
       {job.error && (
         <>
