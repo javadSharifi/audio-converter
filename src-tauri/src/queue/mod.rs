@@ -356,6 +356,9 @@ fn worker_loop(inner: Arc<QueueInner>, options: ConversionOptions) {
                 crate::log_error!("processing failed: {} — {e}", source.display());
             }
         }
+
+        // Cleanup temporary staged input file if it was staged in cache
+        crate::android_fs::cleanup_staged_file(&source.to_string_lossy());
     }
 
     if inner.active_workers.fetch_sub(1, Ordering::SeqCst) == 1 {

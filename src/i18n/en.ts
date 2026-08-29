@@ -96,6 +96,7 @@ export const en = {
 
   queueEmpty: "Queue is empty — add files to begin.",
   estimatedSize: "Estimated output size",
+  preparingFiles: "Preparing & analyzing files...",
 } as const;
 
 export type TranslationKey = keyof typeof en;

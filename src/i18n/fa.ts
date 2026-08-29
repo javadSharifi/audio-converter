@@ -99,4 +99,5 @@ export const fa: Record<TranslationKey, string> = {
 
   queueEmpty: "صف خالی است — برای شروع فایل اضافه کنید.",
   estimatedSize: "حجم تقریبی خروجی",
+  preparingFiles: "در حال آماده‌سازی و خواندن فایل‌ها...",
 };

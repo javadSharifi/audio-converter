@@ -40,18 +40,25 @@ export function DropZone(): React.JSX.Element {
 
       <div className="space-y-1.5 z-10">
         <p className="text-lg font-bold tracking-tight text-zinc-900 dark:text-white md:text-xl">
-          {translate(lang, "dropHere")}
+          {probing ? translate(lang, "preparingFiles") : translate(lang, "dropHere")}
         </p>
         <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
-          {translate(lang, "supported")}
+          {probing ? "..." : translate(lang, "supported")}
         </p>
       </div>
 
       {/* Explicit Stylish Button inside DropZone */}
       <div className="z-10 mt-1">
         <span className="inline-flex items-center gap-2 rounded-2xl bg-white/80 dark:bg-zinc-800/80 px-5 py-2.5 text-xs font-bold text-orange-600 dark:text-orange-400 shadow-sm border border-black/5 dark:border-white/10 group-hover:bg-orange-500 group-hover:text-white transition-all">
-          <span>＋</span>
-          <span>{translate(lang, "orBrowse")}</span>
+          {probing ? (
+            <svg className="animate-spin h-4 w-4 text-orange-500" viewBox="0 0 24 24" fill="none">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+            </svg>
+          ) : (
+            <span>＋</span>
+          )}
+          <span>{probing ? translate(lang, "preparingFiles") : translate(lang, "orBrowse")}</span>
         </span>
       </div>
     </div>

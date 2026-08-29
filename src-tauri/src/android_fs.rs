@@ -45,6 +45,14 @@ pub fn ensure_local_path(input_path: &str) -> String {
     }
 }
 
+/// Delete a temporary staged file from the app's internal cache if it exists.
+pub fn cleanup_staged_file(file_path: &str) {
+    if file_path.contains("staged_inputs") {
+        let _ = std::fs::remove_file(file_path);
+        crate::log_info!("Cleaned up staged input file: {file_path}");
+    }
+}
+
 #[cfg(target_os = "android")]
 static JAVA_VM: std::sync::OnceLock<jni::JavaVM> = std::sync::OnceLock::new();
 
