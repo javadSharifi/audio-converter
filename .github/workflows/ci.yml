@@ -61,6 +61,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Fetch/bundle FFmpeg for this platform (LGPL)
+        run: pnpm fetch:ffmpeg
+
       - name: Verify Rust-to-TypeScript type sync (Specta)
         run: |
           pnpm generate:types

@@ -133,16 +133,17 @@ jobs:
       - name: Install frontend deps
         run: pnpm install --frozen-lockfile
 
+      - name: Fetch/bundle FFmpeg binaries (host and Android)
+        env:
+          NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+        run: |
+          pnpm fetch:ffmpeg
+          TARGET_TRIPLE=aarch64-linux-android pnpm fetch:ffmpeg
+
       - name: Verify Rust-to-TypeScript type sync
         run: |
           pnpm generate:types
           pnpm check:types
-
-      - name: Fetch/bundle FFmpeg for Android target
-        env:
-          TARGET_TRIPLE: aarch64-linux-android
-          NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
-        run: pnpm fetch:ffmpeg
 
       - name: Build Android APK
         env:
