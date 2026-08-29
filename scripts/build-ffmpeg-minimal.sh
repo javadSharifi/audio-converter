@@ -142,10 +142,14 @@ build_ffmpeg() {
       && make -j"$JOBS" && make install) \
     || { echo "=== FFMPEG BUILD FAILED — config.log tail ==="; tail -40 "$CACHE/ffmpeg/ffbuild/config.log" 2>/dev/null; exit 1; }
   fi
-  echo "ffmpeg: built"
-}
-
 build_lame
 build_opus
 build_ffmpeg
+
+if [[ "$IS_ANDROID" == "1" ]]; then
+  echo "stripping Android binaries with $STRIP..."
+  "$STRIP" "$BUILD_DIR/bin/ffmpeg" "$BUILD_DIR/bin/ffprobe" || true
+fi
+
 echo "done: $BUILD_DIR/bin/{ffmpeg,ffprobe}"
+ls -lh "$BUILD_DIR/bin/"

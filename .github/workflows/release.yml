@@ -165,7 +165,30 @@ jobs:
           </resources>
           EOF
           sed -i 's/<application/<application android:extractNativeLibs="true"/' src-tauri/gen/android/app/src/main/AndroidManifest.xml || true
+          
+          # Copy FFmpeg and FFprobe into jniLibs as lib*.so so Gradle packages them into lib/arm64-v8a/
+          mkdir -p src-tauri/gen/android/app/src/main/jniLibs/arm64-v8a
+          cp -f src-tauri/binaries/ffmpeg-aarch64-linux-android src-tauri/gen/android/app/src/main/jniLibs/arm64-v8a/libffmpeg.so
+          cp -f src-tauri/binaries/ffprobe-aarch64-linux-android src-tauri/gen/android/app/src/main/jniLibs/arm64-v8a/libffprobe.so
+          chmod 755 src-tauri/gen/android/app/src/main/jniLibs/arm64-v8a/lib*.so
+          echo "=== jniLibs/arm64-v8a directory contents ==="
+          ls -lh src-tauri/gen/android/app/src/main/jniLibs/arm64-v8a/
+          
           pnpm tauri android build --apk --target aarch64
+
+          # Strictly inspect and verify the produced APK contents
+          APK_FILE=$(find src-tauri/gen/android/app/build/outputs/apk -name "*.apk" | head -n 1)
+          echo "=== Inspecting produced APK ($APK_FILE) ==="
+          unzip -l "$APK_FILE" | grep "lib/"
+          if ! unzip -l "$APK_FILE" | grep -q "lib/arm64-v8a/libffmpeg.so"; then
+            echo "FATAL: lib/arm64-v8a/libffmpeg.so is missing from APK!"
+            exit 1
+          fi
+          if ! unzip -l "$APK_FILE" | grep -q "lib/arm64-v8a/libffprobe.so"; then
+            echo "FATAL: lib/arm64-v8a/libffprobe.so is missing from APK!"
+            exit 1
+          fi
+          echo "SUCCESS: libffmpeg.so and libffprobe.so are verified inside APK!"
 
       - name: Sign Android APK
         env:
