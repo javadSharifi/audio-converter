@@ -160,6 +160,7 @@ jobs:
           cat << 'EOF' > src-tauri/gen/android/app/src/main/res/values/strings.xml
           <resources>
               <string name="app_name">Audio Converter</string>
+              <string name="main_activity_title">Audio Converter</string>
               <string name="default_notification_channel_id">audio_converter_notifications</string>
           </resources>
           EOF
