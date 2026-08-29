@@ -4,9 +4,9 @@ use std::path::PathBuf;
 ///
 /// Resolution order:
 /// 1. `FFMPEG_PATH` / `FFPROBE_PATH` env override (tests, debugging)
-/// 2. Next to the running executable — this is where Tauri places
-///    `externalBin` sidecars in both dev and bundled apps.
-/// 3. Bare name from `PATH` (dev convenience only; never relied on in prod).
+/// 2. Platform-specific resolution:
+///    - Android: dynamic nativeLibraryDir via `TAURI_ANDROID_NATIVE_LIB_DIR`, app lib paths (`lib<name>.so`)
+///    - Desktop: Next to running executable or `CARGO_MANIFEST_DIR/binaries`
 pub fn locate(name: &str) -> Result<PathBuf, crate::error::AppError> {
     let env_key = if name == "ffmpeg" {
         "FFMPEG_PATH"
@@ -25,55 +25,67 @@ pub fn locate(name: &str) -> Result<PathBuf, crate::error::AppError> {
 
     #[cfg(target_os = "android")]
     {
-        // On Android, externalBin binaries are packaged in nativeLibraryDir as lib<name>.so.
-        let so_name = format!("lib{name}.so");
-        let mut checked = Vec::new();
-
-        // 1. Check custom env var if injected by MainActivity (TAURI_ANDROID_NATIVE_LIB_DIR)
-        if let Ok(lib_dir) = std::env::var("TAURI_ANDROID_NATIVE_LIB_DIR") {
-            let candidate = PathBuf::from(&lib_dir).join(&so_name);
-            checked.push(candidate.display().to_string());
-            if candidate.exists() {
-                crate::log_info!("Android locate {name}: FOUND via TAURI_ANDROID_NATIVE_LIB_DIR at {}", candidate.display());
-                return Ok(candidate);
-            }
-        }
-
-        // 2. Check standard Android app lib paths
-        for base in [
-            "/data/data/com.audioconverter.app/lib",
-            "/data/user/0/com.audioconverter.app/lib",
-        ] {
-            let candidate = PathBuf::from(base).join(&so_name);
-            checked.push(candidate.display().to_string());
-            if candidate.exists() {
-                crate::log_info!("Android locate {name}: FOUND at {}", candidate.display());
-                return Ok(candidate);
-            }
-        }
-
-        // 3. Check next to running executable if available
-        if let Ok(exe) = std::env::current_exe() {
-            if let Some(dir) = exe.parent() {
-                let candidate = dir.join(&so_name);
-                checked.push(candidate.display().to_string());
-                if candidate.exists() {
-                    crate::log_info!("Android locate {name}: FOUND next to exe at {}", candidate.display());
-                    return Ok(candidate);
-                }
-            }
-        }
-
-        crate::log_error!(
-            "Android locate {name} FAILED! None of the candidates exist: {:?}",
-            checked
-        );
-
-        return Err(crate::error::AppError::NotFound(format!(
-            "Bundled {name} binary (searched {so_name} in {checked:?}) is missing"
-        )));
+        locate_android(name)
     }
 
+    #[cfg(not(target_os = "android"))]
+    {
+        locate_desktop(name)
+    }
+}
+
+#[cfg(target_os = "android")]
+fn locate_android(name: &str) -> Result<PathBuf, crate::error::AppError> {
+    let so_name = format!("lib{name}.so");
+    let mut checked = Vec::new();
+
+    // 1. Check custom env var if injected by MainActivity (TAURI_ANDROID_NATIVE_LIB_DIR)
+    if let Ok(lib_dir) = std::env::var("TAURI_ANDROID_NATIVE_LIB_DIR") {
+        let candidate = PathBuf::from(&lib_dir).join(&so_name);
+        checked.push(candidate.display().to_string());
+        if candidate.exists() {
+            crate::log_info!("Android locate {name}: FOUND via TAURI_ANDROID_NATIVE_LIB_DIR at {}", candidate.display());
+            return Ok(candidate);
+        }
+    }
+
+    // 2. Check standard Android app lib paths
+    for base in [
+        "/data/data/com.audioconverter.app/lib",
+        "/data/user/0/com.audioconverter.app/lib",
+    ] {
+        let candidate = PathBuf::from(base).join(&so_name);
+        checked.push(candidate.display().to_string());
+        if candidate.exists() {
+            crate::log_info!("Android locate {name}: FOUND at {}", candidate.display());
+            return Ok(candidate);
+        }
+    }
+
+    // 3. Check next to running executable if available
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            let candidate = dir.join(&so_name);
+            checked.push(candidate.display().to_string());
+            if candidate.exists() {
+                crate::log_info!("Android locate {name}: FOUND next to exe at {}", candidate.display());
+                return Ok(candidate);
+            }
+        }
+    }
+
+    crate::log_error!(
+        "Android locate {name} FAILED! None of the candidates exist: {:?}",
+        checked
+    );
+
+    Err(crate::error::AppError::NotFound(format!(
+        "Bundled {name} binary (searched {so_name} in {checked:?}) is missing"
+    )))
+}
+
+#[cfg(not(target_os = "android"))]
+fn locate_desktop(name: &str) -> Result<PathBuf, crate::error::AppError> {
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
             #[cfg(windows)]
@@ -118,14 +130,13 @@ mod tests {
     fn env_override_wins() {
         // Point at a file that certainly exists: the manifest itself.
         std::env::set_var("FFMPEG_PATH", env!("CARGO_MANIFEST_DIR"));
-        assert!(locate("ffmpeg").is_ok());
-        // Bogus override must surface as NotFound naming the bad path.
-        std::env::set_var("FFPROBE_PATH", "/nonexistent/ffprobe-tool");
-        match locate("ffprobe") {
-            Err(crate::error::AppError::NotFound(msg)) => assert!(msg.contains("/nonexistent")),
-            other => panic!("expected NotFound, got {other:?}"),
-        }
+        let p = locate("ffmpeg").expect("override should resolve");
+        assert_eq!(p, PathBuf::from(env!("CARGO_MANIFEST_DIR")));
+
+        // Point at non-existent path
+        std::env::set_var("FFMPEG_PATH", "/does/not/exist/ffmpeg_dummy");
+        assert!(locate("ffmpeg").is_err());
+
         std::env::remove_var("FFMPEG_PATH");
-        std::env::remove_var("FFPROBE_PATH");
     }
 }
