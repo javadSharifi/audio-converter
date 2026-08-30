@@ -125,6 +125,15 @@ class MainActivity : TauriActivity() {
     return true
   }
 
+  fun hasMediaPermissionsNow(): Boolean {
+    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) { // Android 13+
+      ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_AUDIO) == PackageManager.PERMISSION_GRANTED &&
+        ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_VIDEO) == PackageManager.PERMISSION_GRANTED
+    } else {
+      ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
+    }
+  }
+
   companion object {
     private const val TAG = "AudioConverter"
     private const val PERMISSION_REQ_CODE = 1001
@@ -156,6 +165,83 @@ class MainActivity : TauriActivity() {
           Log.w(TAG, "Toast failed", t)
         }
       }
+    }
+
+    @JvmStatic
+    fun hasMediaPermissions(): Boolean {
+      return instance?.hasMediaPermissionsNow() ?: true
+    }
+
+    @JvmStatic
+    fun requestMediaPermissions() {
+      instance?.checkAndRequestMediaPermissions()
+    }
+
+    @JvmStatic
+    fun openAppSettings() {
+      val ctx = appContext ?: return
+      try {
+        val intent = android.content.Intent(
+          android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+          Uri.parse("package:${ctx.packageName}")
+        ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+        ctx.startActivity(intent)
+      } catch (t: Throwable) {
+        Log.w(TAG, "openAppSettings failed", t)
+      }
+    }
+
+    /**
+     * Lightweight metadata lookup (name / size / duration) for picked URIs —
+     * NO file copying. Used to populate the file list; actual staging happens
+     * lazily right before each conversion runs. Output is one line per input:
+     * `name\tsize\tdurationMs` (size -1 = could not read this URI).
+     */
+    @JvmStatic
+    fun statUri(joined: String): String {
+      val context = appContext ?: return ""
+      if (joined.isBlank()) return ""
+      val out = ArrayList<String>()
+      for (uriString in joined.split("\n")) {
+        var name = ""
+        var size = -1L
+        var durationMs = 0L
+        try {
+          val uri = Uri.parse(uriString)
+          try {
+            context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE), null, null, null)?.use { c ->
+              if (c.moveToFirst()) {
+                val ni = c.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                if (ni >= 0 && !c.getString(ni).isNullOrBlank()) name = c.getString(ni)
+                val si = c.getColumnIndex(OpenableColumns.SIZE)
+                if (si >= 0 && !c.isNull(si)) size = c.getLong(si)
+              }
+            }
+          } catch (e: Throwable) {
+            Log.w(TAG, "statUri metadata query failed for $uriString", e)
+          }
+          // Duration only exists on media-store collections; document URIs
+          // throw on the unknown column — that just means "unknown duration".
+          try {
+            context.contentResolver.query(uri, arrayOf("duration"), null, null, null)?.use { c ->
+              if (c.moveToFirst()) {
+                val di = c.getColumnIndex("duration")
+                if (di >= 0 && !c.isNull(di)) durationMs = c.getLong(di)
+              }
+            }
+          } catch (_: Throwable) {
+          }
+          if (name.isNotEmpty() && !name.contains(".")) {
+            val mime = context.contentResolver.getType(uri)
+            val ext = android.webkit.MimeTypeMap.getSingleton().getExtensionFromMimeType(mime)
+            if (!ext.isNullOrBlank()) name = "$name.$ext"
+          }
+        } catch (e: Throwable) {
+          Log.w(TAG, "statUri failed for $uriString", e)
+        }
+        out.add("$name\t$size\t$durationMs")
+      }
+      return out.joinToString("\n")
     }
 
     @JvmStatic
@@ -254,93 +340,106 @@ class MainActivity : TauriActivity() {
     @JvmStatic
     fun resolveUriToLocalPath(uriString: String): String {
       val context = appContext ?: return uriString
-      try {
-        // If already a regular accessible filesystem path
-        if (!uriString.startsWith("content://") && !uriString.startsWith("file://")) {
-          val f = File(uriString)
-          if (f.exists() && f.canRead()) {
-            return f.absolutePath
-          }
+      // Plain filesystem path → use it as-is.
+      if (!uriString.startsWith("content://") && !uriString.startsWith("file://")) {
+        val f = File(uriString)
+        if (f.exists() && f.canRead()) {
+          return f.absolutePath
         }
-
-        val uri = Uri.parse(uriString)
-        var fileName = "media_${System.currentTimeMillis()}"
-        var reportedSize = 0L
-
-        // 1. Query metadata: DISPLAY_NAME & SIZE from ContentResolver
-        try {
-          context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE), null, null, null)?.use { cursor ->
-            if (cursor.moveToFirst()) {
-              val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-              if (nameIndex >= 0) {
-                val name = cursor.getString(nameIndex)
-                if (!name.isNullOrBlank()) {
-                  fileName = name
-                }
-              }
-              val sizeIndex = cursor.getColumnIndex(OpenableColumns.SIZE)
-              if (sizeIndex >= 0) {
-                reportedSize = cursor.getLong(sizeIndex)
-              }
-            }
-          }
-        } catch (e: Throwable) {
-          Log.w(TAG, "Could not query ContentResolver metadata for $uriString", e)
-        }
-
-        // If fileName lacks extension, infer from mimeType
-        if (!fileName.contains(".")) {
-          val mime = context.contentResolver.getType(uri)
-          val ext = android.webkit.MimeTypeMap.getSingleton().getExtensionFromMimeType(mime)
-          if (!ext.isNullOrBlank()) {
-            fileName = "$fileName.$ext"
-          }
-        }
-
-        // 2. Pre-check cache storage capacity
-        val availableCacheSpace = context.cacheDir.usableSpace
-        Log.i(TAG, "Staging $fileName ($reportedSize bytes). Available cache: $availableCacheSpace bytes")
-        if (reportedSize > 0 && availableCacheSpace < (reportedSize + SAFETY_MARGIN_BYTES)) {
-          throw IllegalStateException(
-            "Insufficient cache storage space. Required: ${reportedSize / (1024 * 1024)} MB, Available: ${availableCacheSpace / (1024 * 1024)} MB"
-          )
-        }
-
-        val stagingDir = File(context.cacheDir, "staged_inputs")
-        if (!stagingDir.exists()) {
-          stagingDir.mkdirs()
-        }
-
-        // Keep Unicode (e.g. Persian) titles — only strip filesystem-illegal
-        // and control characters so output names stay meaningful.
-        val safeName = fileName.replace(Regex("[\\\\/:*?\"<>|\\x00-\\x1F]"), "_")
-        val destFile = File(stagingDir, "${System.currentTimeMillis()}_$safeName")
-
-        Log.i(TAG, "Copying Content URI to local cache: $uriString -> ${destFile.absolutePath}")
-        val inputStream = context.contentResolver.openInputStream(uri)
-          ?: throw IllegalStateException("Cannot open input stream for $uriString (Permission denied or file unavailable)")
-
-        inputStream.use { input ->
-          FileOutputStream(destFile).use { output ->
-            val buffer = ByteArray(BUFFER_SIZE)
-            var bytesRead: Int
-            while (input.read(buffer).also { bytesRead = it } != -1) {
-              output.write(buffer, 0, bytesRead)
-            }
-            output.flush()
-          }
-        }
-
-        Log.i(TAG, "Staging completed successfully: ${destFile.absolutePath} (${destFile.length()} bytes)")
-        return destFile.absolutePath
-      } catch (e: SecurityException) {
-        Log.e(TAG, "Permission denied while resolving URI: $uriString", e)
-        toastMain(R.string.permission_denied_hint)
-        return uriString
-      } catch (e: Throwable) {
-        Log.e(TAG, "Failed to resolve URI to local path: $uriString", e)
-        return uriString
       }
+      // file:// URI → decode to its absolute path directly (no stream copy).
+      if (uriString.startsWith("file://")) {
+        return Uri.parse(uriString).path ?: uriString
+      }
+      return try {
+        try {
+          stageUriToCache(context, uriString)
+        } catch (e: SecurityException) {
+          Log.e(TAG, "Permission denied while resolving URI: $uriString", e)
+          toastMain(R.string.permission_denied_hint)
+          "STAGE_ERROR|permission denied by system"
+        } catch (e: Throwable) {
+          Log.e(TAG, "Failed to resolve URI to local path: $uriString", e)
+          "STAGE_ERROR|${e.message ?: e.javaClass.simpleName}"
+        }
+      } catch (e: Throwable) {
+        // Never let an exception escape over JNI (pending exception = abort).
+        Log.e(TAG, "resolveUriToLocalPath hard failure", e)
+        "STAGE_ERROR|unexpected error"
+      }
+    }
+
+    private fun stageUriToCache(context: android.content.Context, uriString: String): String {
+      val uri = Uri.parse(uriString)
+      var fileName = "media_${System.currentTimeMillis()}"
+      var reportedSize = 0L
+
+      // 1. Query metadata: DISPLAY_NAME & SIZE from ContentResolver
+      try {
+        context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE), null, null, null)?.use { cursor ->
+          if (cursor.moveToFirst()) {
+            val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+            if (nameIndex >= 0) {
+              val name = cursor.getString(nameIndex)
+              if (!name.isNullOrBlank()) {
+                fileName = name
+              }
+            }
+            val sizeIndex = cursor.getColumnIndex(OpenableColumns.SIZE)
+            if (sizeIndex >= 0) {
+              reportedSize = cursor.getLong(sizeIndex)
+            }
+          }
+        }
+      } catch (e: Throwable) {
+        Log.w(TAG, "Could not query ContentResolver metadata for $uriString", e)
+      }
+
+      // If fileName lacks extension, infer from mimeType
+      if (!fileName.contains(".")) {
+        val mime = context.contentResolver.getType(uri)
+        val ext = android.webkit.MimeTypeMap.getSingleton().getExtensionFromMimeType(mime)
+        if (!ext.isNullOrBlank()) {
+          fileName = "$fileName.$ext"
+        }
+      }
+
+      // 2. Pre-check cache storage capacity
+      val availableCacheSpace = context.cacheDir.usableSpace
+      Log.i(TAG, "Staging $fileName ($reportedSize bytes). Available cache: $availableCacheSpace bytes")
+      if (reportedSize > 0 && availableCacheSpace < (reportedSize + SAFETY_MARGIN_BYTES)) {
+        throw IllegalStateException(
+          "Insufficient cache storage space. Required: ${reportedSize / (1024 * 1024)} MB, Available: ${availableCacheSpace / (1024 * 1024)} MB"
+        )
+      }
+
+      val stagingDir = File(context.cacheDir, "staged_inputs")
+      if (!stagingDir.exists()) {
+        stagingDir.mkdirs()
+      }
+
+      // Keep Unicode (e.g. Persian) titles — only strip filesystem-illegal
+      // and control characters so output names stay meaningful.
+      val safeName = fileName.replace(Regex("[\\\\/:*?\"<>|\\x00-\\x1F]"), "_")
+      val destFile = File(stagingDir, "${System.currentTimeMillis()}_$safeName")
+
+      Log.i(TAG, "Copying Content URI to local cache: $uriString -> ${destFile.absolutePath}")
+      val inputStream = context.contentResolver.openInputStream(uri)
+        ?: throw IllegalStateException("Cannot open input stream for $uriString (Permission denied or file unavailable)")
+
+      inputStream.use { input ->
+        FileOutputStream(destFile).use { output ->
+          val buffer = ByteArray(BUFFER_SIZE)
+          var bytesRead: Int
+          while (input.read(buffer).also { bytesRead = it } != -1) {
+            output.write(buffer, 0, bytesRead)
+          }
+          output.flush()
+        }
+      }
+
+      Log.i(TAG, "Staging completed successfully: ${destFile.absolutePath} (${destFile.length()} bytes)")
+      return destFile.absolutePath
     }
   }
 }

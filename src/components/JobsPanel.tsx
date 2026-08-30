@@ -16,8 +16,14 @@ function statusColor(status: QueueItem["status"]): string {
 function JobRow({ job }: { job: QueueItem }): React.JSX.Element {
   const lang = useAppStore((s) => s.lang);
   const cancelJob = useAppStore((s) => s.cancelJob);
+  const files = useAppStore((s) => s.files);
   const [showTech, setShowTech] = useState(false);
-  const name = job.sourcePath.split(/[\\/]/).pop() ?? job.sourcePath;
+  // Android rows carry content URIs — prefer the friendly name from the file
+  // list (keyed by the same URI) over the raw URI's last segment.
+  const name =
+    files.find((f) => f.path === job.sourcePath)?.name ??
+    job.sourcePath.split(/[\\/]/).pop() ??
+    job.sourcePath;
 
   const active = job.status === "processing" || job.status === "waiting";
 

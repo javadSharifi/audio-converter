@@ -54,6 +54,115 @@ pub fn delete_staged_input(path: String) {
     crate::android_fs::delete_staged_input(&path);
 }
 
+/// One entry of `stat_media_paths`: lightweight metadata for a picked URI —
+/// NO file copying (staging happens lazily right before each conversion).
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct StatMediaPath {
+    pub input: String,
+    pub name: String,
+    #[specta(type = u32)]
+    pub size_bytes: u64,
+    pub duration_secs: f64,
+    pub error: Option<String>,
+}
+
+/// Lightweight metadata lookup (name / size / duration) for the picked
+/// paths/URIs. Never fails wholesale — each path carries its own error.
+#[tauri::command]
+#[specta::specta]
+pub async fn stat_media_paths(paths: Vec<String>) -> Vec<StatMediaPath> {
+    tauri::async_runtime::spawn_blocking(move || {
+        #[cfg(target_os = "android")]
+        {
+            let joined = paths.join("\n");
+            let raw = crate::android_fs::call_static_string_quiet("statUri", &joined);
+            let mut lines = raw.split('\n').filter(|l| !l.is_empty());
+            paths
+                .into_iter()
+                .map(|input| {
+                    let line = lines.next().unwrap_or("");
+                    let mut parts = line.splitn(3, '\t');
+                    let name = parts.next().unwrap_or("");
+                    let size = parts.next().and_then(|s| s.parse::<i64>().ok());
+                    let dur_ms = parts.next().and_then(|s| s.parse::<i64>().ok());
+                    match (size, dur_ms) {
+                        (Some(size), Some(dur_ms)) if size >= 0 => StatMediaPath {
+                            name: if name.is_empty() {
+                                file_name_of(&input)
+                            } else {
+                                name.to_string()
+                            },
+                            size_bytes: size as u64,
+                            duration_secs: dur_ms.max(0) as f64 / 1000.0,
+                            input,
+                            error: None,
+                        },
+                        _ => StatMediaPath {
+                            name: file_name_of(&input),
+                            size_bytes: 0,
+                            duration_secs: 0.0,
+                            input,
+                            error: Some("Could not read file info".into()),
+                        },
+                    }
+                })
+                .collect()
+        }
+        #[cfg(not(target_os = "android"))]
+        {
+            paths
+                .into_iter()
+                .map(|input| match std::fs::metadata(&input) {
+                    Ok(m) => StatMediaPath {
+                        name: file_name_of(&input),
+                        size_bytes: m.len(),
+                        duration_secs: 0.0,
+                        input,
+                        error: None,
+                    },
+                    Err(_) => StatMediaPath {
+                        name: file_name_of(&input),
+                        size_bytes: 0,
+                        duration_secs: 0.0,
+                        input,
+                        error: Some("Could not read file info".into()),
+                    },
+                })
+                .collect()
+        }
+    })
+    .await
+    .unwrap_or_default()
+}
+
+/// Whether the required media permissions are granted (Android). Always true
+/// on desktop.
+#[tauri::command]
+#[specta::specta]
+pub fn has_media_permissions() -> bool {
+    #[cfg(target_os = "android")]
+    return crate::android_fs::call_static_bool("hasMediaPermissions");
+    #[cfg(not(target_os = "android"))]
+    true
+}
+
+/// Trigger the Android runtime permission dialog (no-op on desktop).
+#[tauri::command]
+#[specta::specta]
+pub fn request_media_permissions() {
+    #[cfg(target_os = "android")]
+    let _ = crate::android_fs::call_static_void("requestMediaPermissions");
+}
+
+/// Open the system app-settings page so the user can grant permissions.
+#[tauri::command]
+#[specta::specta]
+pub fn open_app_settings() {
+    #[cfg(target_os = "android")]
+    let _ = crate::android_fs::call_static_void("openAppSettings");
+}
+
 /// Probe files for the UI list in parallel with a bounded worker pool.
 /// Per-file errors land in `FileMeta.error` instead of failing the whole
 /// call. Runs asynchronously without blocking Tauri's main loop.
@@ -219,14 +328,15 @@ pub async fn start_conversion(
         return Err(AppError::InvalidInput("No input files selected".into()));
     }
     let mut items = items;
-    for item in &mut items {
-        item.path = crate::android_fs::ensure_local_path(&item.path);
-    }
+    // NOTE: no staging here — Android content URIs are resolved lazily by the
+    // worker right before each conversion runs, so picking 20 files never
+    // copies 20 files upfront.
     options.validate()?;
     for item in &items {
         item.validate()?;
         let p = &item.path;
-        if !Path::new(p).exists() {
+        let is_uri = p.starts_with("content://") || p.starts_with("file://");
+        if !is_uri && !Path::new(p).exists() {
             return Err(AppError::NotFound(p.clone()));
         }
     }

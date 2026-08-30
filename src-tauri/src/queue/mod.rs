@@ -336,6 +336,15 @@ fn worker_loop(inner: Arc<QueueInner>) {
             }
         };
 
+        // LAZY STAGING (Android): resolve the input URI to a local file NOW,
+        // right before this job runs — never at pick time. Only `concurrency`
+        // files are copied at any moment; desktop paths pass through as-is.
+        let staged_source = crate::android_fs::ensure_local_path(&source.to_string_lossy());
+        let job_source = std::path::PathBuf::from(&staged_source);
+        if staged_source.as_str() != source.to_string_lossy().as_ref() {
+            crate::log_info!("job {job_id}: staged '{}' -> '{}'", source.display(), staged_source);
+        }
+
         if let Some(rec) = inner.update(&job_id, |r| {
             r.status = JobStatus::Processing;
             r.percent = Some(0.0);
@@ -361,7 +370,7 @@ fn worker_loop(inner: Arc<QueueInner>) {
 
         let result = pipeline::run_job(
             &job_id,
-            &source,
+            &job_source,
             &options,
             trim.as_ref(),
             multiple_sources,

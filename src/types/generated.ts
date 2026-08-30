@@ -13,12 +13,16 @@ export const commands = {
 	 *  bad URI cannot blank out the whole batch.
 	 */
 	resolveMediaPaths: (paths: string[]) => __TAURI_INVOKE<ResolvedMediaPath[]>("resolve_media_paths", { paths }),
+	statMediaPaths: (paths: string[]) => __TAURI_INVOKE<StatMediaPath[]>("stat_media_paths", { paths }),
 	/**
 	 *  Explicitly delete a previously staged Android input file (user removed
 	 *  the row / cleared the list). No-op on desktop and for any path outside
 	 *  the app's staging directory.
 	 */
 	deleteStagedInput: (path: string) => __TAURI_INVOKE<void>("delete_staged_input", { path }),
+	hasMediaPermissions: () => __TAURI_INVOKE<boolean>("has_media_permissions"),
+	requestMediaPermissions: () => __TAURI_INVOKE<void>("request_media_permissions"),
+	openAppSettings: () => __TAURI_INVOKE<void>("open_app_settings"),
 	/**
 	 *  Probe files for the UI list in parallel with a bounded worker pool.
 	 *  Per-file errors land in `FileMeta.error` instead of failing the whole
@@ -139,6 +143,18 @@ export type Settings = {
 	silenceMinDurationSecs: number | null,
 	/**  Advanced/debug only: override bundled ffmpeg location. */
 	ffmpegPathOverride: string | null,
+};
+
+/**
+ *  One entry of `stat_media_paths`: lightweight metadata for a picked URI —
+ *  NO file copying (staging happens lazily right before each conversion).
+ */
+export type StatMediaPath = {
+	input: string,
+	name: string,
+	sizeBytes: number,
+	durationSecs: number,
+	error: string | null,
 };
 
 /**

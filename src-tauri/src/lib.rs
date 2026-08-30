@@ -63,7 +63,11 @@ use tauri::{Manager, RunEvent};
 pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
     tauri_specta::Builder::<tauri::Wry>::new().commands(tauri_specta::collect_commands![
         commands::resolve_media_paths,
+        commands::stat_media_paths,
         commands::delete_staged_input,
+        commands::has_media_permissions,
+        commands::request_media_permissions,
+        commands::open_app_settings,
         commands::probe_files,
         commands::start_conversion,
         commands::waveform_peaks,

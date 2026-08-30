@@ -98,6 +98,12 @@ export const en = {
   queueEmpty: "Queue is empty — add files to begin.",
   estimatedSize: "Estimated output size",
   preparingFiles: "Preparing & analyzing files...",
+  permRequiredTitle: "Permission required",
+  permRequiredBody:
+    "To pick and convert your media, grant Photos & videos / Music & audio access to Audio Converter in system Settings.",
+  permGoSettings: "Open Settings",
+  permGrantNow: "Grant now",
+  permLater: "Later",
 } as const;
 
 export type TranslationKey = keyof typeof en;

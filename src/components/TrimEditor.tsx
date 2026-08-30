@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { convertFileSrc } from "@tauri-apps/api/core";
 import { useAppStore } from "../stores/useAppStore";
 import { translate } from "../i18n";
 import { formatTimecode, parseTimeInput } from "../utils/format";
+import { isAndroid } from "../utils/platform";
 import * as api from "../utils/tauri";
 import type { InputFile } from "../types";
 
@@ -187,23 +189,30 @@ export function TrimEditor({ file }: { file: InputFile }): React.JSX.Element | n
     setPeaks(null);
     setWaveErr(false);
     setSrcUrl(null);
-    api
-      .waveformPeaks(file.path, Math.max(200, Math.min(1600, Math.round(duration * 40))))
-      .then((p) => {
-        if (alive) setPeaks(p);
-      })
-      .catch(() => {
-        if (alive) setWaveErr(true);
-      });
-    // convertFileSrc is synchronous but wrapped for a uniform async flow.
-    api
-      .fileToAssetUrl(file.path)
-      .then((u) => {
-        if (alive) setSrcUrl(u);
-      })
-      .catch(() => {
-        if (alive) setSrcUrl(null); // preview unavailable; editing still works
-      });
+    const prepare = async () => {
+      // Android rows hold content URIs; resolve to the (cached) staged local
+      // file for both the waveform decode and the audio preview.
+      let localPath = file.path;
+      if (isAndroid()) {
+        try {
+          const res = await api.resolveMediaPaths([file.path]);
+          localPath = res[0]?.resolved ?? file.path;
+        } catch {
+          /* fall back to the raw path */
+        }
+      }
+      if (!alive) return;
+      api
+        .waveformPeaks(localPath, Math.max(200, Math.min(1600, Math.round(duration * 40))))
+        .then((p) => {
+          if (alive) setPeaks(p);
+        })
+        .catch(() => {
+          if (alive) setWaveErr(true);
+        });
+      setSrcUrl(convertFileSrc(localPath));
+    };
+    void prepare();
     return () => {
       alive = false;
     };

@@ -34,6 +34,14 @@ pub fn ensure_local_path(input_path: &str) -> String {
 
         crate::log_info!("Android: Resolving input path / URI: {input_path}");
         match stage_uri_via_jni(input_path) {
+            // Kotlin reports failures as `STAGE_ERROR|<reason>` — log the real
+            // reason and fall back to the original input (caller surfaces a
+            // per-job error instead of crashing or inventing a path).
+            Ok(staged) if staged.starts_with("STAGE_ERROR|") => {
+                let reason = staged.trim_start_matches("STAGE_ERROR|");
+                crate::log_error!("Android: staging failed for '{input_path}': {reason}");
+                input_path.to_string()
+            }
             Ok(staged) if std::path::Path::new(&staged).exists() => {
                 crate::log_info!("Android: Successfully staged '{input_path}' -> '{staged}'");
                 uri_cache_insert(input_path.to_string(), staged.clone());
@@ -234,63 +242,103 @@ fn stage_uri_via_jni(uri: &str) -> Result<String, String> {
     )
 }
 
-/// Call a `static String method(String)` on MainActivity and return the
-/// result (the shared JNI bridge used by both staging and publishing).
+/// Resolve the MainActivity class for a JNI call: prefer the GlobalRef cached
+/// from the Java-invoked context (background threads cannot FindClass app
+/// classes — system classloader only).
 #[cfg(target_os = "android")]
-fn call_static_string(
-    method: &str,
-    signature: &str,
-    arg: &str,
-) -> Result<String, String> {
+fn main_activity_class<'a>(
+    env: &mut jni::JNIEnv<'a>,
+) -> Result<jni::objects::JClass<'a>, String> {
+    if let Some(class) = MAIN_ACTIVITY_CLASS.get() {
+        // Zero-cost JClass view over the cached GlobalRef's raw object.
+        return Ok(unsafe { jni::objects::JClass::from_raw(class.as_obj().as_raw()) });
+    }
+    env.find_class("com/audioconverter/app/MainActivity")
+        .map_err(|e| format!("Failed to find MainActivity class: {e}"))
+}
+
+/// Run `f` with a fresh JNIEnv and GUARANTEE no pending Java exception is left
+/// on this (pooled) thread — a leftover exception aborts the whole app on the
+/// thread's next JNI use.
+#[cfg(target_os = "android")]
+fn with_jni_env<T>(f: impl FnOnce(&mut jni::JNIEnv) -> Result<T, String>) -> Result<T, String> {
     let vm = get_java_vm()?;
     let mut env = vm
         .attach_current_thread()
         .map_err(|e| format!("Failed to attach thread: {e}"))?;
-
-    let result = call_static_string_inner(&mut env, method, signature, arg);
-
-    // A pending Java exception on this pooled thread would abort the whole
-    // app on its next JNI use — always clear before propagating the error.
+    let result = f(&mut env);
     if env.exception_check().unwrap_or(false) {
         let _ = env.exception_clear();
     }
     result
 }
 
+/// Call a `static String method(String)` on MainActivity.
 #[cfg(target_os = "android")]
-fn call_static_string_inner(
-    env: &mut jni::JNIEnv,
+fn call_static_string(
     method: &str,
     signature: &str,
     arg: &str,
 ) -> Result<String, String> {
-    let j_arg = env
-        .new_string(arg)
-        .map_err(|e| format!("Failed to create Java string: {e}"))?;
+    with_jni_env(|env| {
+        let j_arg = env
+            .new_string(arg)
+            .map_err(|e| format!("Failed to create Java string: {e}"))?;
+        let cls = main_activity_class(env)?;
+        let j_obj = env
+            .call_static_method(&cls, method, signature, &[(&j_arg).into()])
+            .map_err(|e| format!("Failed to call {method}: {e}"))?
+            .l()
+            .map_err(|e| format!("Expected object: {e}"))?;
+        let j_str = jni::objects::JString::from(j_obj);
+        Ok(env
+            .get_string(&j_str)
+            .map_err(|e| format!("Failed to extract Rust string: {e}"))?
+            .into())
+    })
+}
 
-    let j_obj = match MAIN_ACTIVITY_CLASS.get() {
-        Some(class) => {
-            // Zero-cost JClass view over the cached GlobalRef's raw object.
-            let cls = unsafe { jni::objects::JClass::from_raw(class.as_obj().as_raw()) };
-            env.call_static_method(&cls, method, signature, &[(&j_arg).into()])
-                .map_err(|e| format!("Failed to call {method}: {e}"))?
-        }
-        None => {
-            let class = env
-                .find_class("com/audioconverter/app/MainActivity")
-                .map_err(|e| format!("Failed to find MainActivity class: {e}"))?;
-            env.call_static_method(&class, method, signature, &[(&j_arg).into()])
-                .map_err(|e| format!("Failed to call {method}: {e}"))?
-        }
-    }
-    .l()
-    .map_err(|e| format!("Expected object: {e}"))?;
+/// String bridge that never errors — empty string on failure (for stat).
+#[cfg(target_os = "android")]
+pub fn call_static_string_quiet(method: &str, arg: &str) -> String {
+    call_static_string(
+        method,
+        "(Ljava/lang/String;)Ljava/lang/String;",
+        arg,
+    )
+    .unwrap_or_default()
+}
 
-    let j_str = jni::objects::JString::from(j_obj);
-    let s: String = env
-        .get_string(&j_str)
-        .map_err(|e| format!("Failed to extract Rust string: {e}"))?
-        .into();
+/// Call a `static boolean method()` on MainActivity (fail-open on any error).
+#[cfg(target_os = "android")]
+pub fn call_static_bool(method: &str) -> bool {
+    with_jni_env(|env| {
+        let cls = main_activity_class(env)?;
+        env.call_static_method(&cls, method, "()Z", &[])
+            .map_err(|e| format!("Failed to call {method}: {e}"))?
+            .z()
+            .map_err(|e| format!("Expected bool: {e}"))
+    })
+    .unwrap_or(true)
+}
 
-    Ok(s)
+/// Call a `static void method()` on MainActivity.
+#[cfg(target_os = "android")]
+pub fn call_static_void(method: &str) -> Result<(), String> {
+    with_jni_env(|env| {
+        let cls = main_activity_class(env)?;
+        env.call_static_method(&cls, method, "()V", &[])
+            .map_err(|e| format!("Failed to call {method}: {e}"))?;
+        Ok(())
+    })
+}
+
+#[cfg(not(target_os = "android"))]
+pub fn call_static_bool(_method: &str) -> bool {
+    true
+}
+
+#[cfg(not(target_os = "android"))]
+pub fn call_static_void(_method: &str) -> Result<(), String> {
+    Ok(())
 }

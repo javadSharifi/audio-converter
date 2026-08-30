@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { HeaderBar } from "./components/HeaderBar";
 import { DropZone } from "./components/DropZone";
 import { FileList } from "./components/FileList";
@@ -13,6 +13,7 @@ import { listen } from "@tauri-apps/api/event";
 import { isLossy } from "./types";
 import { parseDurationInput } from "./utils/format";
 import { isAndroid } from "./utils/platform";
+import * as api from "./utils/tauri";
 import { useNativeDragDrop } from "./hooks/useNativeDragDrop";
 import type { QueueItem } from "./types";
 
@@ -79,6 +80,26 @@ export default function App(): React.JSX.Element {
   const loadSettings = useAppStore((s) => s.loadSettings);
   const initEventListeners = useAppStore((s) => s.initEventListeners);
 
+  // Android permission gate: shown on startup and whenever a picker action
+  // fires the `ac:show-permission-modal` event while permissions are missing.
+  const [permOpen, setPermOpen] = useState(false);
+  useEffect(() => {
+    if (!isAndroid()) return;
+    let cancelled = false;
+    const check = () => {
+      void api.hasMediaPermissions().then((granted) => {
+        if (!cancelled && !granted) setPermOpen(true);
+      });
+    };
+    check();
+    const onShow = () => check();
+    window.addEventListener("ac:show-permission-modal", onShow);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("ac:show-permission-modal", onShow);
+    };
+  }, []);
+
   // Window-wide native drop — lives here, not in DropZone, so drag&drop
   // keeps working after the drop zone unmounts (first file added).
   useNativeDragDrop(addPaths);
@@ -138,6 +159,46 @@ export default function App(): React.JSX.Element {
         </div>
       </footer>
       <Toasts />
+
+      {permOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          <div className="glass-panel w-full max-w-sm rounded-3xl p-6 text-center shadow-2xl">
+            <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-orange-500/15 text-2xl">
+              🔒
+            </div>
+            <h2 className="mb-2 text-base font-bold">{translate(lang, "permRequiredTitle")}</h2>
+            <p className="mb-5 text-xs font-medium leading-5 text-zinc-600 dark:text-zinc-300">
+              {translate(lang, "permRequiredBody")}
+            </p>
+            <div className="flex flex-col gap-2">
+              <button
+                onClick={() => {
+                  api.openAppSettings();
+                  setPermOpen(false);
+                }}
+                className="rounded-2xl bg-gradient-to-r from-orange-500 to-amber-500 px-5 py-2.5 text-xs font-bold text-white shadow-md shadow-orange-500/25 active:scale-95 transition-all"
+              >
+                {translate(lang, "permGoSettings")}
+              </button>
+              <button
+                onClick={() => {
+                  api.requestMediaPermissions();
+                  setPermOpen(false);
+                }}
+                className="rounded-2xl border border-black/10 bg-white/60 px-5 py-2.5 text-xs font-bold text-zinc-700 dark:border-white/10 dark:bg-zinc-800/60 dark:text-zinc-200 active:scale-95 transition-all"
+              >
+                {translate(lang, "permGrantNow")}
+              </button>
+              <button
+                onClick={() => setPermOpen(false)}
+                className="px-5 py-2 text-xs font-semibold text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200"
+              >
+                {translate(lang, "permLater")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

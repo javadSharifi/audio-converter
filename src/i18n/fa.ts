@@ -101,4 +101,10 @@ export const fa: Record<TranslationKey, string> = {
   queueEmpty: "صف خالی است — برای شروع فایل اضافه کنید.",
   estimatedSize: "حجم تقریبی خروجی",
   preparingFiles: "در حال آماده‌سازی و خواندن فایل‌ها...",
+  permRequiredTitle: "دسترسی لازم است",
+  permRequiredBody:
+    "برای انتخاب و تبدیل فایل‌ها، دسترسی «تصاویر و ویدیوها» و «موسیقی و صدا» را در تنظیمات سیستم به برنامه بدهید.",
+  permGoSettings: "رفتن به تنظیمات",
+  permGrantNow: "همین حالا مجوز می‌دهم",
+  permLater: "بعداً",
 };

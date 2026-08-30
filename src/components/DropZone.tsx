@@ -3,6 +3,11 @@ import { useAppStore } from "../stores/useAppStore";
 import { translate } from "../i18n";
 import { pickVideos } from "../utils/dialog";
 
+/** Ask App to (re)check and show the permission popup if needed. */
+function requestPermissionCheck(): void {
+  window.dispatchEvent(new CustomEvent("ac:show-permission-modal"));
+}
+
 export function DropZone(): React.JSX.Element {
   const lang = useAppStore((s) => s.lang);
   const addPaths = useAppStore((s) => s.addPaths);
@@ -13,8 +18,16 @@ export function DropZone(): React.JSX.Element {
     <div
       role="button"
       tabIndex={0}
-      onClick={() => void pickVideos().then(addPaths)}
-      onKeyDown={(e) => e.key === "Enter" && void pickVideos().then(addPaths)}
+      onClick={() => {
+        requestPermissionCheck();
+        void pickVideos().then(addPaths);
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") {
+          requestPermissionCheck();
+          void pickVideos().then(addPaths);
+        }
+      }}
       onDragOver={(e) => {
         e.preventDefault();
         setHover(true);

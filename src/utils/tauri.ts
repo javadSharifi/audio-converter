@@ -1,7 +1,7 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { commands } from "../types/generated";
 import type { AppSettings, ConversionOptions, FileMeta, QueueItem, TrimSpec } from "../types";
-import type { ResolvedMediaPath } from "../types/generated";
+import type { ResolvedMediaPath, StatMediaPath } from "../types/generated";
 
 function formatAppError(err: unknown): string {
   if (typeof err === "object" && err !== null) {
@@ -26,6 +26,33 @@ function formatAppError(err: unknown): string {
 
 export async function resolveMediaPaths(paths: string[]): Promise<ResolvedMediaPath[]> {
   return commands.resolveMediaPaths(paths);
+}
+
+/**
+ * Lightweight metadata (name/size/duration) for picked paths — NO copying.
+ * Used to fill the file list; staging happens lazily per conversion job.
+ */
+export async function statMediaPaths(paths: string[]): Promise<StatMediaPath[]> {
+  return commands.statMediaPaths(paths);
+}
+
+/** Whether required media permissions are granted (always true on desktop). */
+export async function hasMediaPermissions(): Promise<boolean> {
+  try {
+    return await commands.hasMediaPermissions();
+  } catch {
+    return true;
+  }
+}
+
+/** Trigger the Android runtime permission dialog (no-op on desktop). */
+export function requestMediaPermissions(): void {
+  void commands.requestMediaPermissions().catch(() => {});
+}
+
+/** Open the system app settings page for this app (no-op on desktop). */
+export function openAppSettings(): void {
+  void commands.openAppSettings().catch(() => {});
 }
 
 /**
