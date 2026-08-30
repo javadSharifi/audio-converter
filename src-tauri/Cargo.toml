@@ -9,6 +9,14 @@ rust-version = "1.77"
 name = "audio_converter"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+[[bin]]
+name = "audio-converter"
+path = "src/main.rs"
+
+[[example]]
+name = "export_types"
+path = "examples/export_types.rs"
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 

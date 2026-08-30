@@ -12,7 +12,7 @@
  *   src-tauri/binaries/ffprobe[-{target-triple}]
  */
 import { execSync } from "node:child_process";
-import { createWriteStream, existsSync, mkdirSync } from "node:fs";
+import { createWriteStream, existsSync, mkdirSync, copyFileSync, chmodSync } from "node:fs";
 import { mkdtemp } from "node:fs/promises";
 import { pipeline } from "node:stream/promises";
 import path from "node:path";
@@ -132,9 +132,8 @@ async function main() {
     // unsuffixed copies serve cargo-test fallback and local dev.
     for (const suffix of [triple, ""]) {
       const base = suffix ? `${name}-${suffix}` : name;
-      const dest = path.join(BIN_DIR, `${base}${exe}`);
-      execSync(`cp ${JSON.stringify(paths[name])} ${JSON.stringify(dest)}`);
-      try { execSync(`chmod 755 ${JSON.stringify(dest)}`); } catch { /* chmod n/a on Windows */ }
+      copyFileSync(paths[name], dest);
+      try { chmodSync(dest, 0o755); } catch { /* chmod n/a on Windows */ }
       console.log(`installed ${dest}`);
     }
   }
