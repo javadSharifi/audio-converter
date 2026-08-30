@@ -20,6 +20,10 @@ pub extern "C" fn Java_com_audioconverter_app_MainActivity_initNativePaths(
     if let Ok(vm) = env.get_java_vm() {
         android_fs::set_java_vm(vm);
     }
+    // This is a Java-invoked native method, so FindClass resolves app classes
+    // via MainActivity's classloader — the ONLY safe place to capture the
+    // class reference for later use on background (attached) threads.
+    android_fs::cache_main_activity_class(&mut env);
     if let Ok(dir) = env.get_string(&native_lib_dir) {
         let dir_str: String = dir.into();
         std::env::set_var("TAURI_ANDROID_NATIVE_LIB_DIR", &dir_str);

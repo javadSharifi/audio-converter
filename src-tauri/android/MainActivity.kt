@@ -17,6 +17,20 @@ import java.io.FileOutputStream
 class MainActivity : TauriActivity() {
   private external fun initNativePaths(nativeLibDir: String, cacheDir: String)
 
+  private var nativePathsInitialized = false
+
+  private fun initNativePathsSafe() {
+    if (nativePathsInitialized) return
+    try {
+      initNativePaths(applicationInfo.nativeLibraryDir, cacheDir.absolutePath)
+      nativePathsInitialized = true
+    } catch (t: Throwable) {
+      // The Rust .so may not be loaded yet (e.g. first onCreate before
+      // Tauri's loadLibrary) — retry on the next resume.
+      Log.w(TAG, "initNativePaths JNI call failed; will retry", t)
+    }
+  }
+
   override fun onCreate(savedInstanceState: Bundle?) {
     instance = this
     appContext = applicationContext
@@ -36,12 +50,8 @@ class MainActivity : TauriActivity() {
       // Clean up orphaned staged files from previous sessions / crashes
       cleanupStagingDirectory(this)
 
-      // Notify Rust directly via JNI
-      try {
-        initNativePaths(nativeDir, cDir)
-      } catch (t: Throwable) {
-        Log.w(TAG, "initNativePaths JNI call fallback to env vars", t)
-      }
+      // Notify Rust directly via JNI (idempotent; retried in onResume)
+      initNativePathsSafe()
 
       // Check and request media permissions if needed
       checkAndRequestMediaPermissions()
@@ -49,6 +59,13 @@ class MainActivity : TauriActivity() {
       Log.e(TAG, "Failed to initialize MainActivity", e)
     }
     super.onCreate(savedInstanceState)
+  }
+
+  override fun onResume() {
+    super.onResume()
+    // Safety net: if the first attempt ran before the Rust lib was loaded,
+    // initialize now that it certainly is (also re-registers after crash).
+    initNativePathsSafe()
   }
 
   override fun onDestroy() {
@@ -79,11 +96,7 @@ class MainActivity : TauriActivity() {
       Log.i(TAG, "Media permissions granted")
     } else {
       Log.w(TAG, "Media permissions denied: $denied")
-      Toast.makeText(
-        this,
-        getString(R.string.permission_denied_hint),
-        Toast.LENGTH_LONG
-      ).show()
+      toastMain(R.string.permission_denied_hint)
     }
   }
 
@@ -127,6 +140,23 @@ class MainActivity : TauriActivity() {
      * Holding an application context never leaks.
      */
     private var appContext: android.content.Context? = null
+
+    /**
+     * Show a toast on the MAIN thread. Toast.makeText from a background
+     * (Looper-less) thread throws RuntimeException — and since these helpers
+     * are invoked over JNI from Rust worker threads, an escaping exception
+     * would leave a pending Java exception in native code (process abort).
+     */
+    private fun toastMain(resId: Int) {
+      val ctx = appContext ?: return
+      android.os.Handler(android.os.Looper.getMainLooper()).post {
+        try {
+          Toast.makeText(ctx, ctx.getString(resId), Toast.LENGTH_LONG).show()
+        } catch (t: Throwable) {
+          Log.w(TAG, "Toast failed", t)
+        }
+      }
+    }
 
     @JvmStatic
     fun cleanupStagingDirectory(context: android.content.Context) {
@@ -305,11 +335,7 @@ class MainActivity : TauriActivity() {
         return destFile.absolutePath
       } catch (e: SecurityException) {
         Log.e(TAG, "Permission denied while resolving URI: $uriString", e)
-        Toast.makeText(
-          context,
-          context.getString(R.string.permission_denied_hint),
-          Toast.LENGTH_LONG
-        ).show()
+        toastMain(R.string.permission_denied_hint)
         return uriString
       } catch (e: Throwable) {
         Log.e(TAG, "Failed to resolve URI to local path: $uriString", e)

@@ -182,9 +182,40 @@ fn uri_cache_remove_target(staged_path: &str) {
 #[cfg(target_os = "android")]
 static JAVA_VM: std::sync::OnceLock<jni::JavaVM> = std::sync::OnceLock::new();
 
+/// MainActivity class captured ONCE from a Java-invoked native method.
+///
+/// CRITICAL: JNI `FindClass` on an attached background (non-Java) thread uses
+/// only the SYSTEM classloader, which cannot see app classes — calling it from
+/// the tokio worker threads always fails with NoClassDefFoundError and leaves
+/// a pending Java exception behind. The next JNI call on that pooled thread
+/// then aborts the whole process (app crash). Caching the class as a GlobalRef
+/// from `initNativePaths` (invoked BY MainActivity, so the caller's classloader
+/// applies) removes both problems.
+#[cfg(target_os = "android")]
+static MAIN_ACTIVITY_CLASS: std::sync::OnceLock<jni::objects::GlobalRef> =
+    std::sync::OnceLock::new();
+
 #[cfg(target_os = "android")]
 pub fn set_java_vm(vm: jni::JavaVM) {
     let _ = JAVA_VM.set(vm);
+}
+
+/// Cache the MainActivity class reference. MUST be called from a
+/// Java-invoked native method (initNativePaths) — never from worker threads.
+#[cfg(target_os = "android")]
+pub fn cache_main_activity_class(env: &mut jni::JNIEnv) {
+    if MAIN_ACTIVITY_CLASS.get().is_none() {
+        if let Ok(class) = env.find_class("com/audioconverter/app/MainActivity") {
+            if let Ok(global) = env.new_global_ref(&class) {
+                let _ = MAIN_ACTIVITY_CLASS.set(global);
+                crate::log_info!("Android JNI: MainActivity class cached");
+            }
+        }
+    }
+    // Never let a pending exception (e.g. a failed first lookup) survive.
+    if env.exception_check().unwrap_or(false) {
+        let _ = env.exception_clear();
+    }
 }
 
 #[cfg(target_os = "android")]
@@ -216,19 +247,42 @@ fn call_static_string(
         .attach_current_thread()
         .map_err(|e| format!("Failed to attach thread: {e}"))?;
 
-    let class = env
-        .find_class("com/audioconverter/app/MainActivity")
-        .map_err(|e| format!("Failed to find MainActivity class: {e}"))?;
+    let result = call_static_string_inner(&mut env, method, signature, arg);
 
+    // A pending Java exception on this pooled thread would abort the whole
+    // app on its next JNI use — always clear before propagating the error.
+    if env.exception_check().unwrap_or(false) {
+        let _ = env.exception_clear();
+    }
+    result
+}
+
+#[cfg(target_os = "android")]
+fn call_static_string_inner(
+    env: &mut jni::JNIEnv,
+    method: &str,
+    signature: &str,
+    arg: &str,
+) -> Result<String, String> {
     let j_arg = env
         .new_string(arg)
         .map_err(|e| format!("Failed to create Java string: {e}"))?;
 
-    let result = env
-        .call_static_method(&class, method, signature, &[(&j_arg).into()])
-        .map_err(|e| format!("Failed to call {method}: {e}"))?;
+    let j_obj = match MAIN_ACTIVITY_CLASS.get() {
+        Some(class) => env
+            .call_static_method(class.as_obj(), method, signature, &[(&j_arg).into()])
+            .map_err(|e| format!("Failed to call {method}: {e}"))?,
+        None => {
+            let class = env
+                .find_class("com/audioconverter/app/MainActivity")
+                .map_err(|e| format!("Failed to find MainActivity class: {e}"))?;
+            env.call_static_method(&class, method, signature, &[(&j_arg).into()])
+                .map_err(|e| format!("Failed to call {method}: {e}"))?
+        }
+    }
+    .l()
+    .map_err(|e| format!("Expected object: {e}"))?;
 
-    let j_obj = result.l().map_err(|e| format!("Expected object: {e}"))?;
     let j_str = jni::objects::JString::from(j_obj);
     let s: String = env
         .get_string(&j_str)
