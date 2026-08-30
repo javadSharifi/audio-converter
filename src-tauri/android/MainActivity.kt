@@ -18,9 +18,15 @@ class MainActivity : TauriActivity() {
   private external fun initNativePaths(nativeLibDir: String, cacheDir: String)
 
   private var nativePathsInitialized = false
+  private var nativeInitAttempts = 0
 
   private fun initNativePathsSafe() {
     if (nativePathsInitialized) return
+    if (nativeInitAttempts >= MAX_NATIVE_INIT_ATTEMPTS) {
+      Log.w(TAG, "Giving up on initNativePaths after $nativeInitAttempts attempts")
+      return
+    }
+    nativeInitAttempts++
     try {
       initNativePaths(applicationInfo.nativeLibraryDir, cacheDir.absolutePath)
       nativePathsInitialized = true
@@ -135,16 +141,6 @@ class MainActivity : TauriActivity() {
     return true
   }
 
-  fun hasMediaPermissionsNow(): Boolean {
-    val ctx = appContext ?: return true
-    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) { // Android 13+
-      ContextCompat.checkSelfPermission(ctx, Manifest.permission.READ_MEDIA_AUDIO) == PackageManager.PERMISSION_GRANTED &&
-        ContextCompat.checkSelfPermission(ctx, Manifest.permission.READ_MEDIA_VIDEO) == PackageManager.PERMISSION_GRANTED
-    } else {
-      ContextCompat.checkSelfPermission(ctx, Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
-    }
-  }
-
   companion object {
     private const val TAG = "AudioConverter"
     private const val PERMISSION_REQ_CODE = 1001
@@ -158,6 +154,7 @@ class MainActivity : TauriActivity() {
     private var sessionCleanupDone = false
 
     private const val RETRY_DELAY_MS = 300L
+    private const val MAX_NATIVE_INIT_ATTEMPTS = 20
 
     /**
      * Application context — survives activity recreation, so background JNI
@@ -391,9 +388,16 @@ class MainActivity : TauriActivity() {
           return f.absolutePath
         }
       }
-      // file:// URI → decode to its absolute path directly (no stream copy).
+      // file:// URI → decode to its absolute path, but ONLY when it is
+      // actually readable (scoped storage can hand back paths that exist on
+      // disk yet deny access).
       if (uriString.startsWith("file://")) {
-        return Uri.parse(uriString).path ?: uriString
+        val decoded = Uri.parse(uriString).path
+        if (decoded != null && File(decoded).canRead()) {
+          return decoded
+        }
+        Log.w(TAG, "file:// URI is not readable: $uriString")
+        return "STAGE_ERROR|file is not readable"
       }
       return try {
         try {
@@ -466,15 +470,18 @@ class MainActivity : TauriActivity() {
       // and control characters so output names stay meaningful.
       val safeName = fileName.replace(Regex("[\\\\/:*?\"<>|\\x00-\\x1F]"), "_")
       // NO timestamp prefix: the staged name IS the user's file name, and the
-      // pipeline derives output stems from it. Uniqueness comes from a counter
-      // suffix (same-name files staged in parallel must never overwrite).
+      // pipeline derives output stems from it. Uniqueness uses ATOMIC
+      // createNewFile — `exists()` + write would race between two parallel
+      // workers staging same-named files (TOCTOU → overwrite/corruption).
       val dot = safeName.lastIndexOf('.')
       val stem = if (dot > 0) safeName.substring(0, dot) else safeName
       val ext = if (dot > 0) safeName.substring(dot) else ""
       var destFile = File(stagingDir, safeName)
       var n = 1
-      while (destFile.exists()) {
+      var claimed = destFile.createNewFile()
+      while (!claimed) {
         destFile = File(stagingDir, "$stem ($n)$ext")
+        claimed = destFile.createNewFile()
         n++
       }
 
