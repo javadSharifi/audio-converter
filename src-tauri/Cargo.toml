@@ -1,6 +1,6 @@
 [package]
 name = "audio-converter"
-version = "1.2.5"
+version = "1.2.6"
 description = "Video to audio converter"
 edition = "2021"
 rust-version = "1.77"

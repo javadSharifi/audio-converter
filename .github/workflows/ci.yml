@@ -65,6 +65,7 @@ jobs:
         run: pnpm fetch:ffmpeg
 
       - name: Verify Rust-to-TypeScript type sync (Specta)
+        if: runner.os == 'Linux'
         run: |
           pnpm generate:types
           pnpm check:types
