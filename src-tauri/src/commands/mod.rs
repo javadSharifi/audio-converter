@@ -327,7 +327,7 @@ pub async fn start_conversion(
     if items.is_empty() {
         return Err(AppError::InvalidInput("No input files selected".into()));
     }
-    let mut items = items;
+    let items = items;
     // NOTE: no staging here — Android content URIs are resolved lazily by the
     // worker right before each conversion runs, so picking 20 files never
     // copies 20 files upfront.

@@ -13,6 +13,10 @@ export const commands = {
 	 *  bad URI cannot blank out the whole batch.
 	 */
 	resolveMediaPaths: (paths: string[]) => __TAURI_INVOKE<ResolvedMediaPath[]>("resolve_media_paths", { paths }),
+	/**
+	 *  Lightweight metadata lookup (name / size / duration) for the picked
+	 *  paths/URIs. Never fails wholesale — each path carries its own error.
+	 */
 	statMediaPaths: (paths: string[]) => __TAURI_INVOKE<StatMediaPath[]>("stat_media_paths", { paths }),
 	/**
 	 *  Explicitly delete a previously staged Android input file (user removed
@@ -20,8 +24,14 @@ export const commands = {
 	 *  the app's staging directory.
 	 */
 	deleteStagedInput: (path: string) => __TAURI_INVOKE<void>("delete_staged_input", { path }),
+	/**
+	 *  Whether the required media permissions are granted (Android). Always true
+	 *  on desktop.
+	 */
 	hasMediaPermissions: () => __TAURI_INVOKE<boolean>("has_media_permissions"),
+	/**  Trigger the Android runtime permission dialog (no-op on desktop). */
 	requestMediaPermissions: () => __TAURI_INVOKE<void>("request_media_permissions"),
+	/**  Open the system app-settings page so the user can grant permissions. */
 	openAppSettings: () => __TAURI_INVOKE<void>("open_app_settings"),
 	/**
 	 *  Probe files for the UI list in parallel with a bounded worker pool.
@@ -153,7 +163,7 @@ export type StatMediaPath = {
 	input: string,
 	name: string,
 	sizeBytes: number,
-	durationSecs: number,
+	durationSecs: number | null,
 	error: string | null,
 };
 
