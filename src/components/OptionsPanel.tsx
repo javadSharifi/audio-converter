@@ -315,7 +315,12 @@ export function OptionsPanel(): React.JSX.Element {
                 value={SILENCE_THRESHOLDS_DB.includes(options.silenceThresholdDb as never)
                   ? options.silenceThresholdDb
                   : "custom"}
-                onChange={(e) => update({ silenceThresholdDb: Number(e.target.value) })}
+                onChange={(e) => {
+                const v = Number(e.target.value);
+                // The "—" option is a label only; never store NaN (it would
+                // fail JSON serialization and kill the whole batch).
+                if (!Number.isNaN(v)) update({ silenceThresholdDb: v });
+              }}
                 className="glass-pill w-full rounded-xl px-3 py-2 text-xs font-semibold text-zinc-800 outline-none dark:text-zinc-200"
               >
                 {SILENCE_THRESHOLDS_DB.map((db) => (

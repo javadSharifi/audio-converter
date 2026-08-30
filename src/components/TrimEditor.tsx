@@ -161,6 +161,7 @@ export function TrimEditor({ file }: { file: InputFile }): React.JSX.Element | n
   const lang = useAppStore((s) => s.lang);
   const setTrim = useAppStore((s) => s.setTrim);
   const pushToast = useAppStore((s) => s.pushToast);
+  const updateFileMeta = useAppStore((s) => s.updateFileMeta);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -172,8 +173,11 @@ export function TrimEditor({ file }: { file: InputFile }): React.JSX.Element | n
   const [waveErr, setWaveErr] = useState(false);
   const [srcUrl, setSrcUrl] = useState<string | null>(null);
   const [playing, setPlaying] = useState(false);
+  // Android: statUri often can't report duration for SAF/document URIs.
+  // Probe the staged file for the real duration so the editor stays usable.
+  const [probedDur, setProbedDur] = useState(0);
 
-  const duration = file.durationSecs;
+  const duration = probedDur > 0 ? probedDur : file.durationSecs;
   const selStart = file.trimStartSecs ?? null;
   const selEnd = file.trimEndSecs ?? null;
   const hasSelection = selStart != null || selEnd != null;
@@ -202,21 +206,42 @@ export function TrimEditor({ file }: { file: InputFile }): React.JSX.Element | n
         }
       }
       if (!alive) return;
+      // Android: unknown duration (SAF documents) → probe the staged file.
+      if (isAndroid() && file.durationSecs <= 0 && localPath !== file.path) {
+        try {
+          const metas = await api.probeFiles([localPath]);
+          const m = metas[0];
+          if (m && !m.error && (m.durationSecs ?? 0) > 0) {
+            if (alive) {
+              setProbedDur(m.durationSecs ?? 0);
+              updateFileMeta(file.path, { durationSecs: m.durationSecs ?? 0 });
+            }
+          }
+        } catch {
+          /* keep 0 — editor stays inert rather than wrong */
+        }
+      }
+      if (!alive) return;
       api
-        .waveformPeaks(localPath, Math.max(200, Math.min(1600, Math.round(duration * 40))))
+        .waveformPeaks(localPath, Math.max(200, Math.min(1600, Math.round((probedDur > 0 ? probedDur : duration) * 40))))
         .then((p) => {
           if (alive) setPeaks(p);
         })
         .catch(() => {
           if (alive) setWaveErr(true);
         });
-      setSrcUrl(convertFileSrc(localPath));
+      // A failed resolution leaves the content URI → no playable preview.
+      if (isAndroid() && localPath.startsWith("content://")) {
+        setSrcUrl(null);
+      } else {
+        setSrcUrl(convertFileSrc(localPath));
+      }
     };
     void prepare();
     return () => {
       alive = false;
     };
-  }, [file.path, duration]);
+  }, [file.path, duration, probedDur, updateFileMeta]);
 
   // ---- Painting (rAF only while needed) -----------------------------------
   const paint = useCallback(() => {
@@ -498,6 +523,7 @@ export function TrimEditor({ file }: { file: InputFile }): React.JSX.Element | n
             data-testid={`trim-play-${file.name}`}
             className="flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-orange-500 to-amber-500 px-3.5 py-1.5 text-xs font-bold text-white shadow-md shadow-orange-500/25 hover:brightness-105 active:scale-95 transition-all disabled:opacity-40"
             aria-label={translate(lang, "trimPlay")}
+            title={srcUrl ? undefined : translate(lang, "trimPreviewUnavailable")}
           >
             <span>{playing ? "⏸" : "▶"}</span>
             <span>{translate(lang, "trimPlay")}</span>
@@ -624,6 +650,12 @@ export function TrimEditor({ file }: { file: InputFile }): React.JSX.Element | n
           onPause={() => setPlaying(false)}
           onEnded={() => setPlaying(false)}
           onTimeUpdate={onAudioTimeUpdate}
+          onError={() => {
+            // Broken/missing preview (e.g. staged file already deleted):
+            // disable playback instead of silently no-op'ing.
+            setSrcUrl(null);
+            setPlaying(false);
+          }}
         />
       )}
     </div>

@@ -80,15 +80,24 @@ export default function App(): React.JSX.Element {
   const loadSettings = useAppStore((s) => s.loadSettings);
   const initEventListeners = useAppStore((s) => s.initEventListeners);
 
-  // Android permission gate: shown on startup and whenever a picker action
-  // fires the `ac:show-permission-modal` event while permissions are missing.
+  // Android permission gate: shown once per session at startup when access is
+  // missing, and again when a pick/stat actually fails with "permission
+  // denied" (SAF picks often work without the media permissions, so we never
+  // nag before the user needs it).
   const [permOpen, setPermOpen] = useState(false);
   useEffect(() => {
     if (!isAndroid()) return;
     let cancelled = false;
     const check = () => {
       void api.hasMediaPermissions().then((granted) => {
-        if (!cancelled && !granted) setPermOpen(true);
+        if (cancelled || granted) return;
+        try {
+          if (sessionStorage.getItem("ac:perm-modal-shown")) return;
+          sessionStorage.setItem("ac:perm-modal-shown", "1");
+        } catch {
+          /* storage unavailable */
+        }
+        setPermOpen(true);
       });
     };
     check();

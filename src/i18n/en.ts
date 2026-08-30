@@ -22,6 +22,7 @@ export const en = {
   trimClear: "Reset",
   trimLoading: "Reading waveform…",
   trimWaveError: "Waveform unavailable",
+  trimPreviewUnavailable: "Preview unavailable — the file could not be staged",
   trimSelectedDuration: "Selected",
   trimCutFirst10: "First 10s",
   trimCutLast10: "Last 10s",

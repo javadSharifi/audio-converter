@@ -64,30 +64,41 @@ pub fn ensure_local_path(input_path: &str) -> String {
     }
 }
 
-/// Delete a staged input file — Android only, and ONLY if the path is inside
-/// the app's own `cacheDir/staged_inputs/` directory. Never touches anything
-/// else (desktop is a hard no-op, so user files can never be matched by a
-/// substring accident).
+/// Delete a staged input file — Android only, and ONLY files we staged
+/// ourselves (looked up from the URI → staged-path cache). `file_path` may be
+/// the original `content://` URI or a staged path; anything else (plain user
+/// paths, `file://` URIs) is NEVER deleted, so user files can never be
+/// matched by a substring accident.
 #[allow(unused_variables)]
 pub fn delete_staged_input(file_path: &str) {
     #[cfg(target_os = "android")]
     {
+        // Rows on Android store the content URI, not the staged path.
+        let target: String = if file_path.starts_with("content://") {
+            match uri_cache_get(file_path) {
+                Some(staged) => staged,
+                None => return,
+            }
+        } else {
+            return; // file:// or plain paths are never our staged copies
+        };
+
         let Some(staging) = staging_dir() else {
             return;
         };
-        let Ok(target) = std::fs::canonicalize(file_path) else {
+        let Ok(target_canon) = std::fs::canonicalize(&target) else {
             return;
         };
         let Ok(staging_canon) = std::fs::canonicalize(&staging) else {
             return;
         };
-        if !target.starts_with(&staging_canon) || !target.is_file() {
+        if !target_canon.starts_with(&staging_canon) || !target_canon.is_file() {
             return;
         }
-        match std::fs::remove_file(&target) {
+        match std::fs::remove_file(&target_canon) {
             Ok(()) => {
                 crate::log_info!("Deleted staged input file: {file_path}");
-                uri_cache_remove_target(file_path);
+                uri_cache_remove_target(&target);
             }
             Err(e) => crate::log_warn!("Failed to delete staged input {file_path}: {e}"),
         }

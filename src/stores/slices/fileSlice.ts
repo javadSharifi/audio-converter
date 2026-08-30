@@ -1,5 +1,6 @@
 import type { StateCreator } from "zustand";
 import type { InputFile } from "../../types";
+import type { QueueSlice } from "./queueSlice";
 import type { ToastSlice } from "./toastSlice";
 import { isAndroid } from "../../utils/platform";
 import * as api from "../../utils/tauri";
@@ -13,13 +14,24 @@ export interface FileSlice {
   removeFile: (path: string) => void;
   clearFiles: () => void;
   setTrim: (path: string, field: "trimStartSecs" | "trimEndSecs", secs: number | null) => void;
+  updateFileMeta: (
+    path: string,
+    patch: Partial<Pick<InputFile, "durationSecs" | "formatName" | "sizeBytes">>,
+  ) => void;
 }
 
 const IS_WINDOWS = typeof navigator !== "undefined" && /win/i.test(navigator.userAgent);
 const pathKey = (p: string): string => (IS_WINDOWS ? p.toLowerCase() : p);
 
+/** True when any job is still referencing the given source path. */
+function hasActiveJob(jobs: QueueSlice["jobs"], path: string): boolean {
+  return Array.from(jobs.values()).some(
+    (j) => j.sourcePath === path && (j.status === "waiting" || j.status === "processing"),
+  );
+}
+
 export const createFileSlice: StateCreator<
-  FileSlice & ToastSlice,
+  FileSlice & QueueSlice & ToastSlice,
   [],
   [],
   FileSlice
@@ -54,6 +66,13 @@ export const createFileSlice: StateCreator<
           if (fresh.length === 0) return {};
           if (fresh.some((f) => f.error)) {
             get().pushToast("warning", "errSomeFilesInvalid");
+            // A permission-shaped stat failure → ask the user to grant access.
+            if (
+              isAndroid() &&
+              fresh.some((f) => (f.error ?? "").toLowerCase().includes("permission"))
+            ) {
+              window.dispatchEvent(new CustomEvent("ac:show-permission-modal"));
+            }
           }
           return { files: [...s.files, ...fresh] };
         });
@@ -119,12 +138,16 @@ export const createFileSlice: StateCreator<
 
   removeFile(path) {
     // Android: free the staged cache copy backing this row (no-op elsewhere).
-    api.deleteStagedInput(path);
+    // Never delete while a job is still reading the staged file.
+    if (!hasActiveJob(get().jobs, path)) api.deleteStagedInput(path);
     set((s) => ({ files: s.files.filter((f) => f.path !== path) }));
   },
 
   clearFiles() {
-    for (const f of get().files) api.deleteStagedInput(f.path);
+    const jobs = get().jobs;
+    for (const f of get().files) {
+      if (!hasActiveJob(jobs, f.path)) api.deleteStagedInput(f.path);
+    }
     set({ files: [] });
   },
 
@@ -133,6 +156,12 @@ export const createFileSlice: StateCreator<
       files: s.files.map((f) =>
         f.path === path ? { ...f, [field]: secs } : f,
       ),
+    }));
+  },
+
+  updateFileMeta(path, patch) {
+    set((s) => ({
+      files: s.files.map((f) => (f.path === path ? { ...f, ...patch } : f)),
     }));
   },
 });

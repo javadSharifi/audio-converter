@@ -83,7 +83,11 @@ export const createSettingsSlice: StateCreator<
   async persistSettings() {
     const { settings } = get();
     if (!settings) return;
-    await api.saveSettings(settings);
-    get().pushToast("info", "settingsSaved");
+    try {
+      await api.saveSettings(settings);
+      get().pushToast("info", "settingsSaved");
+    } catch {
+      /* keep the in-memory state; a failed save must not crash the UI */
+    }
   },
 });

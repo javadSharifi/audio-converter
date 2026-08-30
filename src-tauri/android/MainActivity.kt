@@ -25,9 +25,14 @@ class MainActivity : TauriActivity() {
       initNativePaths(applicationInfo.nativeLibraryDir, cacheDir.absolutePath)
       nativePathsInitialized = true
     } catch (t: Throwable) {
-      // The Rust .so may not be loaded yet (e.g. first onCreate before
-      // Tauri's loadLibrary) — retry on the next resume.
-      Log.w(TAG, "initNativePaths JNI call failed; will retry", t)
+      // The Rust .so may not be loaded yet (first onCreate can run before
+      // Tauri's loadLibrary). Retry with backoff instead of relying on a
+      // single onResume attempt — a dead bridge silently breaks every pick.
+      Log.w(TAG, "initNativePaths JNI call failed; scheduling retry", t)
+      android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(
+        { initNativePathsSafe() },
+        RETRY_DELAY_MS
+      )
     }
   }
 
@@ -47,8 +52,13 @@ class MainActivity : TauriActivity() {
       // Music/AudioConverter (MediaStore) after each job succeeds.
       Os.setenv("TAURI_ANDROID_FILES_DIR", fDir, true)
 
-      // Clean up orphaned staged files from previous sessions / crashes
-      cleanupStagingDirectory(this)
+      // Clean up orphaned staged files from previous sessions — ONLY on the
+      // first onCreate of the process. Activity recreation (rotation, OEM
+      // "Don't keep activities") must never wipe the current session's files.
+      if (!sessionCleanupDone) {
+        cleanupStagingDirectory(this)
+        sessionCleanupDone = true
+      }
 
       // Notify Rust directly via JNI (idempotent; retried in onResume)
       initNativePathsSafe()
@@ -126,11 +136,12 @@ class MainActivity : TauriActivity() {
   }
 
   fun hasMediaPermissionsNow(): Boolean {
+    val ctx = appContext ?: return true
     return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) { // Android 13+
-      ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_AUDIO) == PackageManager.PERMISSION_GRANTED &&
-        ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_VIDEO) == PackageManager.PERMISSION_GRANTED
+      ContextCompat.checkSelfPermission(ctx, Manifest.permission.READ_MEDIA_AUDIO) == PackageManager.PERMISSION_GRANTED &&
+        ContextCompat.checkSelfPermission(ctx, Manifest.permission.READ_MEDIA_VIDEO) == PackageManager.PERMISSION_GRANTED
     } else {
-      ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
+      ContextCompat.checkSelfPermission(ctx, Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
     }
   }
 
@@ -142,6 +153,11 @@ class MainActivity : TauriActivity() {
 
     /** Activity handle (cleared in onDestroy to avoid leaks). */
     var instance: MainActivity? = null
+
+    /** True once the staging dir was swept for this process lifetime. */
+    private var sessionCleanupDone = false
+
+    private const val RETRY_DELAY_MS = 300L
 
     /**
      * Application context — survives activity recreation, so background JNI
@@ -169,7 +185,13 @@ class MainActivity : TauriActivity() {
 
     @JvmStatic
     fun hasMediaPermissions(): Boolean {
-      return instance?.hasMediaPermissionsNow() ?: true
+      val ctx = appContext ?: return true
+      return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        ContextCompat.checkSelfPermission(ctx, Manifest.permission.READ_MEDIA_AUDIO) == PackageManager.PERMISSION_GRANTED &&
+          ContextCompat.checkSelfPermission(ctx, Manifest.permission.READ_MEDIA_VIDEO) == PackageManager.PERMISSION_GRANTED
+      } else {
+        ContextCompat.checkSelfPermission(ctx, Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
+      }
     }
 
     @JvmStatic
@@ -194,8 +216,12 @@ class MainActivity : TauriActivity() {
     /**
      * Lightweight metadata lookup (name / size / duration) for picked URIs —
      * NO file copying. Used to populate the file list; actual staging happens
-     * lazily right before each conversion runs. Output is one line per input:
-     * `name\tsize\tdurationMs` (size -1 = could not read this URI).
+     * lazily right before each conversion runs.
+     *
+     * Output is one line per input: `name\tsize\tdurationMs\tok\tperm`
+     * - `ok=1` even when SIZE is unknown (documents providers often omit it) —
+     *   unknown size just becomes 0, never an error.
+     * - `perm=1` when the failure was a missing media permission.
      */
     @JvmStatic
     fun statUri(joined: String): String {
@@ -204,8 +230,10 @@ class MainActivity : TauriActivity() {
       val out = ArrayList<String>()
       for (uriString in joined.split("\n")) {
         var name = ""
-        var size = -1L
+        var size = 0L
         var durationMs = 0L
+        var ok = 1
+        var perm = 0
         try {
           val uri = Uri.parse(uriString)
           try {
@@ -214,11 +242,17 @@ class MainActivity : TauriActivity() {
                 val ni = c.getColumnIndex(OpenableColumns.DISPLAY_NAME)
                 if (ni >= 0 && !c.getString(ni).isNullOrBlank()) name = c.getString(ni)
                 val si = c.getColumnIndex(OpenableColumns.SIZE)
-                if (si >= 0 && !c.isNull(si)) size = c.getLong(si)
+                if (si >= 0 && !c.isNull(si)) size = c.getLong(si).coerceAtLeast(0)
               }
-            }
+            } ?: run { ok = 0 }
+          } catch (e: SecurityException) {
+            Log.w(TAG, "statUri access denied for $uriString", e)
+            ok = 0
+            perm = 1
+            toastMain(R.string.permission_denied_hint)
           } catch (e: Throwable) {
             Log.w(TAG, "statUri metadata query failed for $uriString", e)
+            ok = 0
           }
           // Duration only exists on media-store collections; document URIs
           // throw on the unknown column — that just means "unknown duration".
@@ -236,10 +270,13 @@ class MainActivity : TauriActivity() {
             val ext = android.webkit.MimeTypeMap.getSingleton().getExtensionFromMimeType(mime)
             if (!ext.isNullOrBlank()) name = "$name.$ext"
           }
+          // Names must stay on ONE protocol line: strip line/field separators.
+          name = name.replace(Regex("[\\n\\r\\t]"), " ")
         } catch (e: Throwable) {
           Log.w(TAG, "statUri failed for $uriString", e)
+          ok = 0
         }
-        out.add("$name\t$size\t$durationMs")
+        out.add("$name\t$size\t$durationMs\t$ok\t$perm")
       }
       return out.joinToString("\n")
     }
@@ -319,6 +356,13 @@ class MainActivity : TauriActivity() {
           } ?: false
           if (!copied) {
             Log.w(TAG, "Copy to MediaStore failed for $path")
+            // Remove the just-inserted row — never leave a ghost entry in
+            // the user's music library.
+            try {
+              context.contentResolver.delete(uri, null, null)
+            } catch (t: Throwable) {
+              Log.w(TAG, "Could not clean up MediaStore row $uri", t)
+            }
             results.add(path)
             continue
           }
@@ -421,7 +465,18 @@ class MainActivity : TauriActivity() {
       // Keep Unicode (e.g. Persian) titles — only strip filesystem-illegal
       // and control characters so output names stay meaningful.
       val safeName = fileName.replace(Regex("[\\\\/:*?\"<>|\\x00-\\x1F]"), "_")
-      val destFile = File(stagingDir, "${System.currentTimeMillis()}_$safeName")
+      // NO timestamp prefix: the staged name IS the user's file name, and the
+      // pipeline derives output stems from it. Uniqueness comes from a counter
+      // suffix (same-name files staged in parallel must never overwrite).
+      val dot = safeName.lastIndexOf('.')
+      val stem = if (dot > 0) safeName.substring(0, dot) else safeName
+      val ext = if (dot > 0) safeName.substring(dot) else ""
+      var destFile = File(stagingDir, safeName)
+      var n = 1
+      while (destFile.exists()) {
+        destFile = File(stagingDir, "$stem ($n)$ext")
+        n++
+      }
 
       Log.i(TAG, "Copying Content URI to local cache: $uriString -> ${destFile.absolutePath}")
       val inputStream = context.contentResolver.openInputStream(uri)

@@ -25,6 +25,7 @@ export const fa: Record<TranslationKey, string> = {
   trimClear: "بازنشانی",
   trimLoading: "در حال خواندن موج صدا…",
   trimWaveError: "نمایش موج در دسترس نیست",
+  trimPreviewUnavailable: "پیش‌نمایش در دسترس نیست — فایل قابل آماده‌سازی نبود",
   trimSelectedDuration: "انتخاب‌شده",
   trimCutFirst10: "۱۰ ثانیه اول",
   trimCutLast10: "۱۰ ثانیه آخر",

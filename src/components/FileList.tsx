@@ -253,10 +253,7 @@ export function FileList(): React.JSX.Element | null {
       </div>
 
       <button
-        onClick={() => {
-          window.dispatchEvent(new CustomEvent("ac:show-permission-modal"));
-          void pickVideos().then(addPaths);
-        }}
+        onClick={() => void pickVideos().then(addPaths)}
         data-testid="add-more"
         className="glass-card flex items-center justify-center gap-2 rounded-2xl py-3 text-xs font-semibold text-zinc-700 transition-all hover:scale-[1.01] hover:border-orange-500/50 hover:text-orange-500 active:scale-[0.99] dark:text-zinc-300 md:self-start md:px-5 md:py-2.5"
       >

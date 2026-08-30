@@ -19,6 +19,9 @@ export function HeaderBar(): React.JSX.Element {
   }, []);
 
   const patch = (p: Partial<AppSettings>) => {
+    // Ignore edits until settings finished loading — saving a partial object
+    // would fail deserialization on the backend.
+    if (!settings) return;
     updateSettings(p);
     void persistSettings();
   };

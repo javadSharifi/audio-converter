@@ -82,29 +82,49 @@ pub async fn stat_media_paths(paths: Vec<String>) -> Vec<StatMediaPath> {
                 .into_iter()
                 .map(|input| {
                     let line = lines.next().unwrap_or("");
-                    let mut parts = line.splitn(3, '\t');
+                    // Protocol: name\tsize\tdurationMs\tok\tperm
+                    let mut parts = line.splitn(5, '\t');
                     let name = parts.next().unwrap_or("");
                     let size = parts.next().and_then(|s| s.parse::<i64>().ok());
                     let dur_ms = parts.next().and_then(|s| s.parse::<i64>().ok());
-                    match (size, dur_ms) {
-                        (Some(size), Some(dur_ms)) if size >= 0 => StatMediaPath {
+                    let ok = parts.next().map(|s| s.trim() == "1").unwrap_or(false);
+                    let perm = parts.next().map(|s| s.trim() == "1").unwrap_or(false);
+                    if raw.is_empty() {
+                        StatMediaPath {
+                            name: file_name_of(&input),
+                            size_bytes: 0,
+                            duration_secs: 0.0,
+                            input,
+                            error: Some(
+                                "File access bridge is not ready — please reopen the app".into(),
+                            ),
+                        }
+                    } else if !ok {
+                        StatMediaPath {
+                            name: file_name_of(&input),
+                            size_bytes: 0,
+                            duration_secs: 0.0,
+                            input,
+                            error: Some(
+                                if perm {
+                                    "Permission denied — please grant media access in Settings".into()
+                                } else {
+                                    "Could not read file info".into()
+                                },
+                            ),
+                        }
+                    } else {
+                        StatMediaPath {
                             name: if name.is_empty() {
                                 file_name_of(&input)
                             } else {
                                 name.to_string()
                             },
-                            size_bytes: size as u64,
-                            duration_secs: dur_ms.max(0) as f64 / 1000.0,
+                            size_bytes: size.unwrap_or(0).max(0) as u64,
+                            duration_secs: dur_ms.unwrap_or(0).max(0) as f64 / 1000.0,
                             input,
                             error: None,
-                        },
-                        _ => StatMediaPath {
-                            name: file_name_of(&input),
-                            size_bytes: 0,
-                            duration_secs: 0.0,
-                            input,
-                            error: Some("Could not read file info".into()),
-                        },
+                        }
                     }
                 })
                 .collect()
@@ -290,9 +310,11 @@ fn file_name_of(path: &str) -> String {
 #[tauri::command]
 #[specta::specta]
 pub async fn waveform_peaks(path: String, buckets: Option<u32>) -> Result<Vec<[f32; 2]>> {
-    let path = crate::android_fs::ensure_local_path(&path);
     let buckets = (buckets.unwrap_or(1000) as usize).clamp(16, 4000);
     tauri::async_runtime::spawn_blocking(move || {
+        // Staging (potentially multi-GB copy on Android) MUST run on the
+        // blocking pool — never on the async runtime's own threads.
+        let path = crate::android_fs::ensure_local_path(&path);
         let ffmpeg = crate::ffmpeg::locate::ffmpeg_path()
             .map_err(|_| AppError::Other("Bundled ffmpeg binary is missing".into()))?;
         // A duration hint lets the peak extractor stream: buckets are aligned

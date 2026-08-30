@@ -344,6 +344,25 @@ fn worker_loop(inner: Arc<QueueInner>) {
         if staged_source.as_str() != source.to_string_lossy().as_ref() {
             crate::log_info!("job {job_id}: staged '{}' -> '{}'", source.display(), staged_source);
         }
+        // A content URI that still resolves to itself = staging failed.
+        // Fail the job here with the REAL reason instead of letting ffprobe
+        // report a misleading "corrupted or unsupported" error.
+        if source.to_string_lossy().starts_with("content://")
+            && staged_source.starts_with("content://")
+        {
+            let reason =
+                "Could not copy the selected file into app storage. Check storage space and media access, then retry.";
+            crate::log_error!("job {job_id}: staging failed for {}", source.display());
+            if let Some(rec) = inner.update(&job_id, |r| {
+                r.status = JobStatus::Failed;
+                r.error = Some(reason.into());
+                r.percent = None;
+                r.speed = None;
+            }) {
+                inner.emit_event_for(&rec);
+            }
+            continue;
+        }
 
         if let Some(rec) = inner.update(&job_id, |r| {
             r.status = JobStatus::Processing;
