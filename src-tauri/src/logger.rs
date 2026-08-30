@@ -1,13 +1,8 @@
 use std::fs::OpenOptions;
 use std::io::Write;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-static CONSOLE: AtomicBool = AtomicBool::new(true);
-
-pub fn set_console(enabled: bool) {
-    CONSOLE.store(enabled, Ordering::Relaxed);
-}
+const ROTATE_THRESHOLD_BYTES: u64 = 5 * 1024 * 1024;
 
 fn timestamp() -> String {
     let now = SystemTime::now()
@@ -38,19 +33,31 @@ fn timestamp() -> String {
 /// Append a lifecycle log line to `<app_data>/logs/app.log` and console.
 pub fn log(level: &str, msg: &str) {
     let line = format!("[{}] [{level}] {msg}", timestamp());
-    if CONSOLE.load(Ordering::Relaxed) {
-        eprintln!("{line}");
-    }
+    eprintln!("{line}");
     if let Some(dir) = crate::settings::app_data_dir() {
         let logs = dir.join("logs");
         let _ = std::fs::create_dir_all(&logs);
+        let log_file = logs.join("app.log");
+        rotate_if_needed(&log_file);
         if let Ok(mut f) = OpenOptions::new()
             .create(true)
             .append(true)
-            .open(logs.join("app.log"))
+            .open(&log_file)
         {
             let _ = writeln!(f, "{line}");
         }
+    }
+}
+
+/// Keep the log from growing forever: when `app.log` passes the threshold,
+/// it becomes `app.log.old` (previous rotation is overwritten).
+fn rotate_if_needed(log_file: &std::path::Path) {
+    let Ok(meta) = std::fs::metadata(log_file) else {
+        return;
+    };
+    if meta.len() >= ROTATE_THRESHOLD_BYTES {
+        let old = log_file.with_extension("log.old");
+        let _ = std::fs::rename(log_file, old);
     }
 }
 

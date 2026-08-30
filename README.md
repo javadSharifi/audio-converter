@@ -109,3 +109,8 @@ Licensing summary:
 - macOS build is unsigned (no Developer ID); Gatekeeper right-click → Open on first run.
 - Opus output forces 48 kHz when given unsupported rates (encoder requirement).
 - WAV is written as 16-bit PCM for maximum compatibility.
+- Android: inputs picked from SAF are staged once into the app cache (deduped per
+  URI for the session); outputs are written internally and published to the shared
+  `Music/AudioConverter` collection via MediaStore — custom output folders are
+  therefore not available on Android. Conversions die if the app is killed in the
+  background (foreground service with progress notification is a future improvement).

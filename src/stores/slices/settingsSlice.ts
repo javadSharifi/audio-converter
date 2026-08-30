@@ -2,6 +2,7 @@ import type { StateCreator } from "zustand";
 import type { AppSettings, ConversionOptions } from "../../types";
 import type { Lang } from "../../i18n";
 import type { ToastSlice } from "./toastSlice";
+import { isAndroid } from "../../utils/platform";
 import * as api from "../../utils/tauri";
 
 export interface SettingsSlice {
@@ -23,7 +24,7 @@ export const defaultOptions: ConversionOptions = {
   sampleRateHz: 44100,
   channels: 2,
   splitEnabled: false,
-  splitDurationSecs: 600,
+  splitDurationSecs: 3600,
   removeSilence: false,
   silenceThresholdDb: -30,
   silenceMinDurationSecs: 2,
@@ -48,6 +49,12 @@ export const createSettingsSlice: StateCreator<
 
   async loadSettings() {
     const settings = await api.getSettings();
+    // SAF folder picks are not writable via plain paths on Android; the
+    // backend maps all output modes onto its user-visible output root.
+    const outputMode =
+      isAndroid() && settings.defaultOutputMode === "custom_folder"
+        ? "same_as_source"
+        : settings.defaultOutputMode;
     set({
       settings,
       lang: settings.language,
@@ -59,8 +66,8 @@ export const createSettingsSlice: StateCreator<
         removeSilence: settings.removeSilenceDefault,
         silenceThresholdDb: settings.silenceThresholdDb,
         silenceMinDurationSecs: settings.silenceMinDurationSecs,
-        outputMode: settings.defaultOutputMode,
-        customOutputDir: settings.defaultOutputDir,
+        outputMode,
+        customOutputDir: isAndroid() ? null : settings.defaultOutputDir,
       },
     });
   },

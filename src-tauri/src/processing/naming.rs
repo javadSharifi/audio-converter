@@ -90,6 +90,29 @@ pub fn output_directory(
             .map(|s| s.to_string_lossy().into_owned())
             .unwrap_or_else(|| "output".into()),
     );
+
+    // Android: sources are always staged in app-private cache, so "next to
+    // the source" would hide outputs from the user. All modes resolve into
+    // the internal converted root, which is published to the shared
+    // Music/AudioConverter media collection after each job succeeds. SAF
+    // content:// folder picks are not writable via plain file paths, so
+    // CustomFolder degrades to the shared root with a log note.
+    #[cfg(target_os = "android")]
+    if let Some(root) = crate::android_fs::output_root() {
+        return match options.output_mode {
+            crate::types::OutputMode::PerSourceFolder => root.join(&stem),
+            _ => {
+                if matches!(options.output_mode, crate::types::OutputMode::CustomFolder) {
+                    crate::log_warn!(
+                        "Android: custom output folder ignored, writing to {}",
+                        root.display()
+                    );
+                }
+                root
+            }
+        };
+    }
+
     match options.output_mode {
         crate::types::OutputMode::SameAsSource => parent,
         crate::types::OutputMode::CustomFolder => {
@@ -139,6 +162,54 @@ pub fn build_output_paths(
         .into_iter()
         .map(|n| unique_path(&dir.join(n)))
         .collect()
+}
+
+/// Delete leftover `.part` temp files from crashed/killed runs inside `dirs`.
+///
+/// Only names matching this app's exact temp pattern are removed —
+/// `<stem>.job-<digits>-<digits>.part` or `<stem>.job-<digits>-<digits>.part.<ext>`
+/// — so unrelated user files (even `movie.part.mp3`) are never touched.
+pub fn sweep_orphan_temps(dirs: &[PathBuf]) {
+    for dir in dirs {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            if entry.path().is_dir() {
+                continue;
+            }
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if is_app_temp_name(&name) {
+                crate::log_info!("sweeping orphan temp: {}", entry.path().display());
+                let _ = std::fs::remove_file(entry.path());
+            }
+        }
+    }
+}
+
+/// Match `{stem}.job-{ts}-{seq}.part[.{ext}]` (the name produced by the
+/// pipeline's temp-file staging).
+fn is_app_temp_name(name: &str) -> bool {
+    let Some((stem, tail)) = name.rsplit_once(".part") else {
+        return false;
+    };
+    // Tail must be empty (`*.part`) or a plain extension (`*.part.mp3`).
+    if !tail.is_empty() && !(tail.starts_with('.') && !tail.contains(['\\', '/'])) {
+        return false;
+    }
+    let Some((prefix, job_id)) = stem.rsplit_once(".job-") else {
+        return false;
+    };
+    if prefix.is_empty() {
+        return false;
+    }
+    let Some((ts, seq)) = job_id.split_once('-') else {
+        return false;
+    };
+    !ts.is_empty()
+        && ts.bytes().all(|b| b.is_ascii_digit())
+        && !seq.is_empty()
+        && seq.bytes().all(|b| b.is_ascii_digit())
 }
 
 #[cfg(test)]
@@ -196,5 +267,35 @@ mod tests {
         let o = opts(OutputMode::CustomFolder, Some("/out"));
         let p = build_output_paths(src, &o, 1, true);
         assert!(p[0].starts_with("/out/Movie_B"));
+    }
+
+    #[test]
+    fn app_temp_name_detection() {
+        assert!(is_app_temp_name("song.job-1730000000000-0.part.mp3"));
+        assert!(is_app_temp_name("song.job-1730000000000-0.part"));
+        assert!(is_app_temp_name("جلسه اول.job-1730000000000-12.part.opus"));
+        assert!(!is_app_temp_name("song.mp3"));
+        assert!(!is_app_temp_name("song.part.mp3"));
+        assert!(!is_app_temp_name("job-1730000000000-0.part.mp3"));
+        assert!(!is_app_temp_name("song.job-abc-0.part.mp3"));
+        assert!(!is_app_temp_name("song.job-1730000000000-.part.mp3"));
+        assert!(!is_app_temp_name("song.job-1730000000000-0.party"));
+    }
+
+    #[test]
+    fn sweep_removes_only_orphan_temps() {
+        let dir = std::env::temp_dir().join(format!("ac-sweep-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let keep = dir.join("song.mp3");
+        let lookalike = dir.join("movie.part.mp3");
+        let orphan = dir.join("song.job-1730000000000-0.part.mp3");
+        for f in [&keep, &lookalike, &orphan] {
+            std::fs::write(f, b"x").unwrap();
+        }
+        sweep_orphan_temps(&[dir.clone()]);
+        assert!(keep.exists());
+        assert!(lookalike.exists());
+        assert!(!orphan.exists());
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

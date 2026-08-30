@@ -104,17 +104,22 @@ fi
 # ------------------------------------------------------------------------------
 echo -e "${BLUE}▶ Checking environment prerequisites...${NC}"
 
-# JAVA_HOME resolution
+# JAVA_HOME resolution (macOS / Linux / Windows-GitBash)
 if [ -z "${JAVA_HOME:-}" ] || [ ! -d "${JAVA_HOME:-}" ]; then
   if command -v /usr/libexec/java_home >/dev/null 2>&1; then
     JAVA_HOME="$(/usr/libexec/java_home -v 17 2>/dev/null || /usr/libexec/java_home 2>/dev/null || true)"
   fi
-  if [ -z "$JAVA_HOME" ] && [ -d "/opt/homebrew/opt/openjdk@17" ]; then
-    JAVA_HOME="/opt/homebrew/opt/openjdk@17"
-  elif [ -z "$JAVA_HOME" ] && [ -d "/opt/homebrew/opt/openjdk" ]; then
-    JAVA_HOME="/opt/homebrew/opt/openjdk"
-  elif [ -z "$JAVA_HOME" ] && [ -d "/Applications/Android Studio.app/Contents/jbr/Contents/Home" ]; then
-    JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"
+  if [ -z "${JAVA_HOME:-}" ]; then
+    for cand in \
+      "/opt/homebrew/opt/openjdk@17" \
+      "/opt/homebrew/opt/openjdk" \
+      "/Applications/Android Studio.app/Contents/jbr/Contents/Home" \
+      "/c/Program Files/Android/Android Studio/jbr" \
+      "/c/Program Files/Java/jdk-17" \
+      "/c/Program Files/Eclipse Adoptium/jdk-17" \
+      "$LOCALAPPDATA/Programs/Android Studio/jbr"; do
+      if [ -d "$cand" ]; then JAVA_HOME="$cand"; break; fi
+    done
   fi
 fi
 
@@ -130,13 +135,15 @@ export JAVA_HOME
 export PATH="$JAVA_HOME/bin:$PATH"
 echo -e "  ${GREEN}✔${NC} Java JDK: $JAVA_HOME ($("$JAVA_HOME/bin/java" -version 2>&1 | head -n 1))"
 
-# ANDROID_HOME resolution
+# ANDROID_HOME resolution (macOS / Windows-GitBash)
 if [ -z "${ANDROID_HOME:-}" ] || [ ! -d "${ANDROID_HOME:-}" ]; then
-  if [ -d "$HOME/Library/Android/sdk" ]; then
-    ANDROID_HOME="$HOME/Library/Android/sdk"
-  elif [ -d "/opt/homebrew/share/android-commandlinetools" ]; then
-    ANDROID_HOME="$HOME/Library/Android/sdk"
-  fi
+  for cand in \
+    "$HOME/Library/Android/sdk" \
+    "$LOCALAPPDATA/Android/Sdk" \
+    "/c/Users/$USER/AppData/Local/Android/Sdk" \
+    "/opt/homebrew/share/android-commandlinetools"; do
+    if [ -d "$cand" ]; then ANDROID_HOME="$cand"; break; fi
+  done
 fi
 
 if [ -z "${ANDROID_HOME:-}" ] || [ ! -d "$ANDROID_HOME" ]; then
@@ -211,40 +218,15 @@ if [ ! -d "$ROOT/src-tauri/gen/android" ]; then
   pnpm tauri android init
 fi
 
-# Copy Android icons
-if [ -d "$ROOT/src-tauri/icons/android" ]; then
-  cp -rf "$ROOT/src-tauri/icons/android"/* "$ROOT/src-tauri/gen/android/app/src/main/res/" 2>/dev/null || true
+if [ ! -d "$ROOT/src-tauri/gen/android" ]; then
+  echo -e "${YELLOW}Initializing Tauri Android project (pnpm tauri android init)...${NC}"
+  pnpm tauri android init
 fi
 
-# Ensure strings.xml has proper app name
-mkdir -p "$ROOT/src-tauri/gen/android/app/src/main/res/values"
-cat << 'EOF' > "$ROOT/src-tauri/gen/android/app/src/main/res/values/strings.xml"
-<resources>
-    <string name="app_name">Audio Converter</string>
-    <string name="main_activity_title">Audio Converter</string>
-    <string name="default_notification_channel_id">audio_converter_notifications</string>
-</resources>
-EOF
-
-# Ensure extractNativeLibs="true" in AndroidManifest.xml
-MANIFEST_FILE="$ROOT/src-tauri/gen/android/app/src/main/AndroidManifest.xml"
-if [ -f "$MANIFEST_FILE" ]; then
-  if ! grep -q 'android:extractNativeLibs="true"' "$MANIFEST_FILE"; then
-    if [[ "$OSTYPE" == "darwin"* ]]; then
-      sed -i '' 's/<application/<application android:extractNativeLibs="true"/' "$MANIFEST_FILE" || true
-    else
-      sed -i 's/<application/<application android:extractNativeLibs="true"/' "$MANIFEST_FILE" || true
-    fi
-  fi
-fi
-
-# Copy FFmpeg and FFprobe as lib*.so into jniLibs so Gradle packages them into the APK
-JNILIBS_TARGET="$ROOT/src-tauri/gen/android/app/src/main/jniLibs/$JNI_DIR"
-mkdir -p "$JNILIBS_TARGET"
-cp -f "$FFMPEG_BIN" "$JNILIBS_TARGET/libffmpeg.so"
-cp -f "$FFPROBE_BIN" "$JNILIBS_TARGET/libffprobe.so"
-chmod 755 "$JNILIBS_TARGET"/lib*.so
-echo -e "${GREEN}✔${NC} Packaged libffmpeg.so and libffprobe.so into jniLibs/$JNI_DIR"
+# Apply ALL project patches through the shared patcher (same as CI):
+# icons, strings, useLegacyPackaging, media permissions, MainActivity.kt,
+# and ffmpeg/ffprobe as lib*.so into jniLibs.
+bash "$ROOT/scripts/patch-android-project.sh" "$TARGET_TRIPLE"
 
 # ------------------------------------------------------------------------------
 # 5. Type verification & Frontend / Android build
@@ -283,6 +265,19 @@ if ! echo "$APK_CONTENTS" | grep -q "lib/$JNI_DIR/libffprobe.so"; then
 fi
 echo -e "${GREEN}✔ Verification passed: libffmpeg.so & libffprobe.so present in APK.${NC}"
 
+# Assert runtime media permissions survived into the built manifest — an APK
+# without them silently fails to open any user-picked media file.
+AAPT2="$(find -L "$ANDROID_HOME/build-tools" \( -name aapt2 -o -name aapt2.exe \) 2>/dev/null | sort -V | tail -n 1)"
+if [ -n "$AAPT2" ]; then
+  if ! "$AAPT2" dump permissions "$RAW_APK" | grep -q "READ_MEDIA"; then
+    echo -e "${RED}✘ FATAL: READ_MEDIA_* permissions missing from built APK manifest!${NC}"
+    exit 1
+  fi
+  echo -e "${GREEN}✔ Verification passed: media permissions present in APK.${NC}"
+else
+  echo -e "${YELLOW}⚠ aapt2 not found — skipping permission assertion.${NC}"
+fi
+
 # ------------------------------------------------------------------------------
 # 7. APK Signing
 # ------------------------------------------------------------------------------
@@ -310,6 +305,7 @@ if [ $SKIP_SIGN -eq 0 ]; then
       echo -e "${GREEN}✔ Using existing persistent release keystore at: $KS_PATH${NC}"
     else
       echo -e "${YELLOW}No keystore found at $KS_PATH. Generating permanent local release keystore...${NC}"
+      echo -e "${YELLOW}⚠ WARNING: default password in use (audioconverter123) — set KEYSTORE_PASSWORD/KEY_PASSWORD for real distribution.${NC}"
       keytool -genkeypair -v \
         -keystore "$KS_PATH" \
         -alias "$K_ALIAS" \
@@ -358,7 +354,11 @@ fi
 END_TIME=$(date +%s)
 DURATION=$((END_TIME - START_TIME))
 FILE_SIZE=$(ls -lh "$FINAL_APK" | awk '{print $5}')
-SHA256=$(shasum -a 256 "$FINAL_APK" | awk '{print $1}')
+if command -v shasum >/dev/null 2>&1; then
+  SHA256=$(shasum -a 256 "$FINAL_APK" | awk '{print $1}')
+else
+  SHA256=$(sha256sum "$FINAL_APK" | awk '{print $1}')
+fi
 
 echo -e "\n${GREEN}${BOLD}======================================================${NC}"
 echo -e "${GREEN}${BOLD}🎉 Android Build Complete!${NC}"

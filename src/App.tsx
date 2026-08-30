@@ -12,6 +12,7 @@ import { openPath } from "@tauri-apps/plugin-opener";
 import { listen } from "@tauri-apps/api/event";
 import { isLossy } from "./types";
 import { parseDurationInput } from "./utils/format";
+import { isAndroid } from "./utils/platform";
 import { useNativeDragDrop } from "./hooks/useNativeDragDrop";
 import type { QueueItem } from "./types";
 
@@ -88,9 +89,11 @@ export default function App(): React.JSX.Element {
     let cleanup: (() => void) | null = null;
     void initEventListeners().then((fn) => (cleanup = fn));
 
-    // Auto-open output folder on queue completion (setting-dependent).
+    // Auto-open output folder on queue completion (setting-dependent; not
+    // applicable on Android — outputs live in the shared media store).
     let unlistenIdle: (() => void) | null = null;
     void listen<boolean>("queue-idle", () => {
+      if (isAndroid()) return;
       const { settings, jobs } = useAppStore.getState();
       if (!settings?.autoOpenOutputFolder) return;
       const done = Array.from(jobs.values()).find(

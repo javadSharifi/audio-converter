@@ -14,6 +14,9 @@ export interface FileSlice {
   setTrim: (path: string, field: "trimStartSecs" | "trimEndSecs", secs: number | null) => void;
 }
 
+const IS_WINDOWS = typeof navigator !== "undefined" && /win/i.test(navigator.userAgent);
+const pathKey = (p: string): string => (IS_WINDOWS ? p.toLowerCase() : p);
+
 export const createFileSlice: StateCreator<
   FileSlice & ToastSlice,
   [],
@@ -28,14 +31,29 @@ export const createFileSlice: StateCreator<
     set({ probing: true });
     const baseName = (p: string) => p.split(/[\\/]/).pop() ?? p;
     try {
-      const resolvedPaths = await api.resolveMediaPaths(paths);
-      const metas = await api.probeFiles(resolvedPaths);
+      // Per-path resolution: one bad URI must not blank out the batch.
+      // (On Android, URIs stage into app cache and are cached per-session,
+      // so the resolved path is stable for the URI's lifetime.)
+      const resolved = await api.resolveMediaPaths(paths);
+      const failedMetas: InputFile[] = resolved
+        .filter((r) => r.error)
+        .map((r) => ({
+          path: r.resolved,
+          name: baseName(r.input),
+          sizeBytes: 0,
+          durationSecs: 0,
+          formatName: "",
+          hasAudio: false,
+          error: r.error ?? "Could not read file",
+        }));
+      const okResolved = resolved.filter((r) => !r.error).map((r) => r.resolved);
+      const metas = okResolved.length > 0 ? await api.probeFiles(okResolved) : [];
       // Dedupe AFTER the await against current state — overlapping calls
       // (rapid drops, double dialog submit) must not create dup rows.
       set((s) => {
-        const existing = new Set(s.files.map((f) => f.path));
-        const fresh: InputFile[] = metas
-          .filter((m) => !existing.has(m.path))
+        const existing = new Set(s.files.map((f) => pathKey(f.path)));
+        const fresh: InputFile[] = [...failedMetas, ...metas]
+          .filter((m) => !existing.has(pathKey(m.path)))
           .map((m) => ({
             ...m,
             durationSecs: m.durationSecs ?? 0,
@@ -52,9 +70,9 @@ export const createFileSlice: StateCreator<
       // files in the list with the reason, instead of silently dropping them.
       const msg = String(e);
       set((s) => {
-        const existing = new Set(s.files.map((f) => f.path));
+        const existing = new Set(s.files.map((f) => pathKey(f.path)));
         const fallback: InputFile[] = paths
-          .filter((p) => !existing.has(p))
+          .filter((p) => !existing.has(pathKey(p)))
           .map((p) => ({
             path: p,
             name: baseName(p),
@@ -74,10 +92,13 @@ export const createFileSlice: StateCreator<
   },
 
   removeFile(path) {
+    // Android: free the staged cache copy backing this row (no-op elsewhere).
+    api.deleteStagedInput(path);
     set((s) => ({ files: s.files.filter((f) => f.path !== path) }));
   },
 
   clearFiles() {
+    for (const f of get().files) api.deleteStagedInput(f.path);
     set({ files: [] });
   },
 

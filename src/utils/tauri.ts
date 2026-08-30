@@ -1,6 +1,7 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { commands } from "../types/generated";
 import type { AppSettings, ConversionOptions, FileMeta, QueueItem, TrimSpec } from "../types";
+import type { ResolvedMediaPath } from "../types/generated";
 
 function formatAppError(err: unknown): string {
   if (typeof err === "object" && err !== null) {
@@ -23,8 +24,16 @@ function formatAppError(err: unknown): string {
   return String(err);
 }
 
-export async function resolveMediaPaths(paths: string[]): Promise<string[]> {
+export async function resolveMediaPaths(paths: string[]): Promise<ResolvedMediaPath[]> {
   return commands.resolveMediaPaths(paths);
+}
+
+/**
+ * Delete an Android staged input file (user removed the row / cleared the
+ * list). No-op on desktop and for paths outside the app staging dir.
+ */
+export function deleteStagedInput(path: string): void {
+  void commands.deleteStagedInput(path).catch(() => {});
 }
 
 export async function probeFiles(paths: string[]): Promise<FileMeta[]> {

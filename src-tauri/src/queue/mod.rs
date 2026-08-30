@@ -1,12 +1,13 @@
 use std::collections::{HashMap, VecDeque};
-use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use tauri::{AppHandle, Emitter as _};
 
 use crate::error::AppError;
 use crate::ffmpeg::run::CancelToken;
+use crate::processing::naming;
 use crate::processing::pipeline::{self, Emitter};
 use crate::types::{ConversionOptions, JobEvent, JobStatus, TrimSpec};
 
@@ -25,14 +26,24 @@ pub struct JobRecord {
     pub outputs: Vec<String>,
 }
 
+/// One unit of pending work. Carries its OWN options snapshot so that a
+/// worker spawned for a previous batch can never process a newer item with
+/// stale settings (the old-worker race).
+struct QueuedJob {
+    id: String,
+    source: PathBuf,
+    trim: Option<TrimSpec>,
+    multiple_sources: bool,
+    options: ConversionOptions,
+}
+
 struct QueueInner {
     app: AppHandle,
     jobs: Mutex<HashMap<String, JobRecord>>,
-    /// FIFO of pending work: (job id, source path, optional trim window, multiple_sources flag).
-    order: Mutex<VecDeque<(String, PathBuf, Option<TrimSpec>, bool)>>,
+    /// FIFO of pending work.
+    order: Mutex<VecDeque<QueuedJob>>,
     tokens: Mutex<HashMap<String, CancelToken>>,
     active_workers: AtomicUsize,
-    shutting_down: AtomicBool,
 }
 
 impl QueueInner {
@@ -61,12 +72,10 @@ impl QueueManager {
                 order: Mutex::new(VecDeque::new()),
                 tokens: Mutex::new(HashMap::new()),
                 active_workers: AtomicUsize::new(0),
-                shutting_down: AtomicBool::new(false),
             }),
         }
     }
 
-    /// Enqueue files and start `concurrency` workers. Returns job ids in
     /// Enqueue files and start `concurrency` workers. Returns job ids in
     /// the same order as `inputs`. Each item carries an optional per-file
     /// trim window; `None` means "process whole file".
@@ -76,11 +85,26 @@ impl QueueManager {
         options: ConversionOptions,
         concurrency: u32,
     ) -> Vec<String> {
-        // Cancel any lingering in-flight tasks from prior batch
+        // Cancel any lingering in-flight tasks from prior batch. Children are
+        // killed synchronously here, so no old temp file can still be written
+        // when we sweep below.
         self.cancel_all();
         crate::processing::naming::clear_reserved_paths();
 
         let is_multi = items.len() > 1;
+
+        // Sweep orphaned `.part` temp files (from crashed/killed runs) in the
+        // output directories of the incoming batch.
+        let mut sweep_dirs: Vec<PathBuf> = items
+            .iter()
+            .map(|item| {
+                naming::output_directory(Path::new(&item.path), &options, is_multi)
+            })
+            .collect();
+        sweep_dirs.sort();
+        sweep_dirs.dedup();
+        naming::sweep_orphan_temps(&sweep_dirs);
+
         let mut ids = Vec::with_capacity(items.len());
         let mut fresh_records = Vec::with_capacity(items.len());
         {
@@ -116,7 +140,13 @@ impl QueueManager {
                 jobs.insert(id.clone(), rec.clone());
                 tokens.insert(id.clone(), CancelToken::new());
                 fresh_records.push(rec);
-                order.push_back((id.clone(), source, trim, is_multi));
+                order.push_back(QueuedJob {
+                    id: id.clone(),
+                    source,
+                    trim,
+                    multiple_sources: is_multi,
+                    options: options.clone(),
+                });
                 ids.push(id);
             }
         }
@@ -130,8 +160,7 @@ impl QueueManager {
         let worker_count = concurrency.clamp(1, 32).min((ids.len().max(1)) as u32) as usize;
         for _ in 0..worker_count {
             let inner = Arc::clone(&self.inner);
-            let options = options.clone();
-            std::thread::spawn(move || worker_loop(inner, options));
+            std::thread::spawn(move || worker_loop(inner));
         }
         ids
     }
@@ -210,12 +239,16 @@ impl QueueManager {
 
 impl QueueInner {
     fn emit_event_for(&self, rec: &JobRecord) {
-        crate::log_info!(
-            "emit_event: id={} status={:?} percent={:?}",
-            rec.id,
-            rec.status,
-            rec.percent
-        );
+        // Processing events tick ~4x/s per job; only lifecycle transitions
+        // are worth a log line (keeps app.log small and IO off the hot path).
+        if !matches!(rec.status, JobStatus::Processing) {
+            crate::log_info!(
+                "emit_event: id={} status={:?} percent={:?}",
+                rec.id,
+                rec.status,
+                rec.percent
+            );
+        }
         self.emit(&JobEvent {
             id: rec.id.clone(),
             source_path: rec.source_path.clone(),
@@ -254,15 +287,19 @@ fn new_job_id() -> String {
     format!("job-{ts}-{n}")
 }
 
-fn worker_loop(inner: Arc<QueueInner>, options: ConversionOptions) {
+fn worker_loop(inner: Arc<QueueInner>) {
     inner.active_workers.fetch_add(1, Ordering::SeqCst);
 
     loop {
-        if inner.shutting_down.load(Ordering::SeqCst) {
-            break;
-        }
         let next = inner.order.lock().unwrap().pop_front();
-        let Some((job_id, source, trim, multiple_sources)) = next else { break };
+        let Some(job) = next else { break };
+        let QueuedJob {
+            id: job_id,
+            source,
+            trim,
+            multiple_sources,
+            options,
+        } = job;
 
         // Per-job token: cancel(job_id) kills only this file.
         let Some(token) = inner.tokens.lock().unwrap().get(&job_id).cloned() else {
@@ -276,8 +313,28 @@ fn worker_loop(inner: Arc<QueueInner>, options: ConversionOptions) {
             continue;
         }
 
-        // Resolve ffmpeg paths per job (honors settings override).
-        let (ffmpeg, ffprobe) = resolve_binaries();
+        // Resolve ffmpeg paths per job (honors settings override). A missing
+        // bundled binary is surfaced as a job failure — never a silent
+        // fallback to whatever `ffmpeg` happens to be on PATH.
+        let (ffmpeg, ffprobe) = match resolve_binaries() {
+            Ok(pair) => pair,
+            Err(e) => {
+                crate::log_error!("binaries missing: {e}");
+                if let Some(rec) = inner.update(&job_id, |r| {
+                    r.status = JobStatus::Failed;
+                    r.error = Some(e.to_string());
+                    r.technical = Some(
+                        "Bundled ffmpeg/ffprobe binaries could not be located next to the executable. Reinstall the application."
+                            .into(),
+                    );
+                    r.percent = None;
+                    r.speed = None;
+                }) {
+                    inner.emit_event_for(&rec);
+                }
+                continue;
+            }
+        };
 
         if let Some(rec) = inner.update(&job_id, |r| {
             r.status = JobStatus::Processing;
@@ -316,16 +373,21 @@ fn worker_loop(inner: Arc<QueueInner>, options: ConversionOptions) {
 
         match result {
             Ok(outcome) => {
+                // Android: publish finished outputs into the shared
+                // Music/AudioConverter collection (desktop no-op).
+                let outputs = crate::android_fs::publish_outputs(
+                    &outcome
+                        .outputs
+                        .iter()
+                        .map(|p| p.to_string_lossy().into_owned())
+                        .collect::<Vec<String>>(),
+                );
                 if let Some(rec) = inner.update(&job_id, |r| {
                     r.status = JobStatus::Completed;
                     r.percent = Some(100.0);
                     r.speed = None;
                     r.warning = outcome.warning.clone();
-                    r.outputs = outcome
-                        .outputs
-                        .iter()
-                        .map(|p| p.to_string_lossy().into_owned())
-                        .collect();
+                    r.outputs = outputs;
                 }) {
                     inner.emit_event_for(&rec);
                 }
@@ -357,8 +419,11 @@ fn worker_loop(inner: Arc<QueueInner>, options: ConversionOptions) {
             }
         }
 
-        // Cleanup temporary staged input file if it was staged in cache
-        crate::android_fs::cleanup_staged_file(&source.to_string_lossy());
+        // NOTE: staged Android input files are intentionally NOT deleted
+        // here — the UI row (trim editor, waveform, re-conversion) keeps
+        // referencing them. Deletion happens explicitly via the
+        // `delete_staged_input` command when the user removes the file, and
+        // on cold start via MainActivity's staging-dir cleanup.
     }
 
     if inner.active_workers.fetch_sub(1, Ordering::SeqCst) == 1 {
@@ -367,16 +432,34 @@ fn worker_loop(inner: Arc<QueueInner>, options: ConversionOptions) {
     }
 }
 
-fn resolve_binaries() -> (PathBuf, PathBuf) {
+fn resolve_binaries() -> Result<(PathBuf, PathBuf), AppError> {
     let override_path = crate::settings::Settings::load().ffmpeg_path_override;
     if let Some(p) = override_path {
         let pb = PathBuf::from(&p);
         if pb.exists() {
-            return (pb.clone(), pb);
+            // The override points at ffmpeg; derive ffprobe from its sibling
+            // instead of reusing the same binary for both roles.
+            let ffprobe = probe_sibling(&pb).unwrap_or_else(|| pb.clone());
+            return Ok((pb, ffprobe));
         }
+        crate::log_warn!("settings ffmpeg_path_override does not exist: {p}");
     }
-    (
-        crate::ffmpeg::locate::ffmpeg_path().unwrap_or_else(|_| PathBuf::from("ffmpeg")),
-        crate::ffmpeg::locate::locate("ffprobe").unwrap_or_else(|_| PathBuf::from("ffprobe")),
-    )
+    let ffmpeg = crate::ffmpeg::locate::ffmpeg_path()?;
+    let ffprobe = crate::ffmpeg::locate::locate("ffprobe")?;
+    Ok((ffmpeg, ffprobe))
+}
+
+/// Given `…/ffmpeg[.exe]`, return `…/ffprobe[.exe]` when it exists.
+fn probe_sibling(ffmpeg: &Path) -> Option<PathBuf> {
+    let dir = ffmpeg.parent()?;
+    let file_name = ffmpeg.file_name()?.to_string_lossy().into_owned();
+    let probe_name = if file_name.eq_ignore_ascii_case("ffmpeg.exe") {
+        "ffprobe.exe"
+    } else if file_name.eq_ignore_ascii_case("ffmpeg") {
+        "ffprobe"
+    } else {
+        return None;
+    };
+    let candidate = dir.join(probe_name);
+    candidate.exists().then_some(candidate)
 }

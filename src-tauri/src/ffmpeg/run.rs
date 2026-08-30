@@ -185,6 +185,16 @@ impl RunSpec {
             std::thread::sleep(Duration::from_millis(60));
         };
 
+        // The child may have died from our own cancel() between the
+        // is_cancelled check above and try_wait — classify as cancelled
+        // instead of reporting a confusing ffmpeg exit-code error.
+        if self.cancel.is_cancelled() {
+            let _ = out_thread.join();
+            let _ = err_thread.join();
+            crate::log_warn!("ffmpeg run cancelled");
+            return Err(AppError::Cancelled);
+        }
+
         let (code, final_tail) = {
             let mut guard = self.cancel.inner.child.lock().unwrap();
             *guard = None;

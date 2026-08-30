@@ -17,13 +17,17 @@ jobs:
           - os: macos-14
             target: aarch64-apple-darwin
             label: macos-arm64
+            bundles: ""
           - os: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
             label: linux-x64
             install-packages: true
+            bundles: ""
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             label: windows-x64
+            # MSI/WiX is built by "all" but never shipped — build NSIS only.
+            bundles: "--bundles nsis"
 
     runs-on: ${{ matrix.os }}
     steps:
@@ -56,10 +60,6 @@ jobs:
         if: runner.os == 'macOS'
         run: brew install lame opus pkg-config
 
-      - name: Install Windows UPX
-        if: runner.os == 'Windows'
-        run: choco install upx --no-progress
-
       - name: Install frontend deps
         run: pnpm install --frozen-lockfile
 
@@ -79,7 +79,7 @@ jobs:
         run: cargo test --manifest-path src-tauri/Cargo.toml
 
       - name: Build app bundle
-        run: pnpm tauri build --target ${{ matrix.target }}
+        run: pnpm tauri build --target ${{ matrix.target }} ${{ matrix.bundles }}
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -123,7 +123,9 @@ jobs:
         id: setup-ndk
         uses: nttld/setup-ndk@v1
         with:
-          ndk-version: r26d
+          # r27+ links ELFs 16KB-page-aligned by default — required for
+          # Android 15+ devices and Play submission (targetSdk 35+).
+          ndk-version: r27d
           link-to-sdk: true
 
       - name: Install Linux system deps
@@ -152,37 +154,10 @@ jobs:
           ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
         run: |
           pnpm tauri android init
-          # Apply Android icons to project
-          if [ -d "src-tauri/icons/android" ]; then
-            cp -rf src-tauri/icons/android/* src-tauri/gen/android/app/src/main/res/ || true
-          fi
-          # Ensure strings.xml has proper app name
-          mkdir -p src-tauri/gen/android/app/src/main/res/values
-          cat << 'EOF' > src-tauri/gen/android/app/src/main/res/values/strings.xml
-          <resources>
-              <string name="app_name">Audio Converter</string>
-              <string name="main_activity_title">Audio Converter</string>
-              <string name="default_notification_channel_id">audio_converter_notifications</string>
-          </resources>
-          EOF
-          sed -i 's/<application/<application android:extractNativeLibs="true"/' src-tauri/gen/android/app/src/main/AndroidManifest.xml || true
-          
-          # Inject media permissions into AndroidManifest.xml
-          sed -i 's|<manifest[^>]*>|&\n    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />\n    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />\n    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />|' src-tauri/gen/android/app/src/main/AndroidManifest.xml || true
-          
-          # Copy customized MainActivity.kt with dynamic nativeLibraryDir and URI staging
-          if [ -f "src-tauri/android/MainActivity.kt" ]; then
-            mkdir -p src-tauri/gen/android/app/src/main/java/com/audioconverter/app
-            cp -f src-tauri/android/MainActivity.kt src-tauri/gen/android/app/src/main/java/com/audioconverter/app/MainActivity.kt
-          fi
-          
-          # Copy FFmpeg and FFprobe into jniLibs as lib*.so so Gradle packages them into lib/arm64-v8a/
-          mkdir -p src-tauri/gen/android/app/src/main/jniLibs/arm64-v8a
-          cp -f src-tauri/binaries/ffmpeg-aarch64-linux-android src-tauri/gen/android/app/src/main/jniLibs/arm64-v8a/libffmpeg.so
-          cp -f src-tauri/binaries/ffprobe-aarch64-linux-android src-tauri/gen/android/app/src/main/jniLibs/arm64-v8a/libffprobe.so
-          chmod 755 src-tauri/gen/android/app/src/main/jniLibs/arm64-v8a/lib*.so
-          echo "=== jniLibs/arm64-v8a directory contents ==="
-          ls -lh src-tauri/gen/android/app/src/main/jniLibs/arm64-v8a/
+          # Apply ALL project patches through the shared patcher (identical to
+          # local builds): icons, strings, useLegacyPackaging, media
+          # permissions, MainActivity.kt and jniLibs packaging.
+          bash scripts/patch-android-project.sh aarch64-linux-android
           
           pnpm tauri android build --apk --target aarch64
 
@@ -199,6 +174,14 @@ jobs:
             exit 1
           fi
           echo "SUCCESS: libffmpeg.so and libffprobe.so are verified inside APK!"
+
+          # Assert runtime media permissions survived into the built manifest
+          AAPT2=$(find $ANDROID_HOME/build-tools -name aapt2 | sort -V | tail -n 1)
+          if [ -n "$AAPT2" ] && ! "$AAPT2" dump permissions "$APK_FILE" | grep -q "READ_MEDIA"; then
+            echo "FATAL: READ_MEDIA_* permissions missing from built APK manifest!"
+            exit 1
+          fi
+          echo "SUCCESS: media permissions verified inside APK!"
 
       - name: Sign Android APK
         env:
@@ -219,16 +202,12 @@ jobs:
             echo "Decoding repository secret keystore..."
             echo "$KEYSTORE_BASE64" | base64 --decode > "$KS_PATH"
           else
-            echo "Generating release keystore in CI..."
-            keytool -genkeypair -v \
-              -keystore "$KS_PATH" \
-              -alias "$K_ALIAS" \
-              -keyalg RSA \
-              -keysize 2048 \
-              -validity 10000 \
-              -storepass "$KS_PASS" \
-              -keypass "$K_PASS" \
-              -dname "CN=Audio Converter, OU=App, O=AudioConverter, L=Tehran, C=IR"
+            # Signing with a fresh ephemeral key would make this release
+            # uninstallable alongside every previous one — fail loudly instead.
+            echo "FATAL: ANDROID_KEYSTORE_BASE64 secret is not set."
+            echo "Every release MUST be signed with the SAME keystore, otherwise"
+            echo "users cannot update the app. Add the secret and re-run."
+            exit 1
           fi
 
           UNSIGNED_APK=$(find src-tauri/gen/android/app/build/outputs/apk -type f -name "*unsigned.apk" | head -n 1)

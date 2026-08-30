@@ -7,13 +7,22 @@ import { invoke as __TAURI_INVOKE } from "@tauri-apps/api/core";
 
 /** Commands */
 export const commands = {
-	/**  Pre-resolve media paths (e.g. Android Content URIs to cached files) */
-	resolveMediaPaths: (paths: string[]) => __TAURI_INVOKE<string[]>("resolve_media_paths", { paths }),
 	/**
-	 *  Probe files for the UI list. Per-file errors land in `FileMeta.error`
-	 *  instead of failing the whole call.
-	 *  Probe files for the UI list in parallel across threads. Per-file errors land in `FileMeta.error`
-	 *  instead of failing the whole call. Runs asynchronously without blocking Tauri's main loop.
+	 *  Pre-resolve media paths (e.g. Android Content URIs to cached files).
+	 *  Never fails wholesale — each path carries its own optional error so one
+	 *  bad URI cannot blank out the whole batch.
+	 */
+	resolveMediaPaths: (paths: string[]) => __TAURI_INVOKE<ResolvedMediaPath[]>("resolve_media_paths", { paths }),
+	/**
+	 *  Explicitly delete a previously staged Android input file (user removed
+	 *  the row / cleared the list). No-op on desktop and for any path outside
+	 *  the app's staging directory.
+	 */
+	deleteStagedInput: (path: string) => __TAURI_INVOKE<void>("delete_staged_input", { path }),
+	/**
+	 *  Probe files for the UI list in parallel with a bounded worker pool.
+	 *  Per-file errors land in `FileMeta.error` instead of failing the whole
+	 *  call. Runs asynchronously without blocking Tauri's main loop.
 	 */
 	probeFiles: (paths: string[]) => __TAURI_INVOKE<FileMeta[]>("probe_files", { paths }),
 	/**
@@ -104,6 +113,17 @@ export type OutputMode =
 "per_source_folder";
 
 export type QualityPreset = "low" | "medium" | "high" | "very_high" | "custom";
+
+/**
+ *  Result of pre-resolving one input path (e.g. Android Content URIs to
+ *  cached local files). `resolved` equals `input` when no staging happened
+ *  or when staging failed (the error field then explains why).
+ */
+export type ResolvedMediaPath = {
+	input: string,
+	resolved: string,
+	error: string | null,
+};
 
 export type Settings = {
 	language: string,

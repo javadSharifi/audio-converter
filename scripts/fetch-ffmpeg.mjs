@@ -5,20 +5,36 @@
  * - macOS (arm64/x64): built from source via scripts/build-ffmpeg-macos.sh
  *   (prebuilt macOS artifacts are GPL; we ship LGPL).
  * - Linux x64: BtbN "latest-linux64-lgpl" archive.
- * - Windows x64: BtbN "latest-win64-lgpl" archive.
+ * - Windows x64: BtbN pinned 7.1-branch LGPL archive (sha256-verified).
  *
  * Output layout (Tauri externalBin naming):
  *   src-tauri/binaries/ffmpeg[-{target-triple}]
  *   src-tauri/binaries/ffprobe[-{target-triple}]
  */
 import { execSync } from "node:child_process";
-import { createWriteStream, existsSync, mkdirSync, copyFileSync, chmodSync } from "node:fs";
-import { mkdtemp } from "node:fs/promises";
+import {
+  createWriteStream,
+  createReadStream,
+  existsSync,
+  mkdirSync,
+  copyFileSync,
+  chmodSync,
+} from "node:fs";
+import { mkdtemp, readFile, readdir } from "node:fs/promises";
 import { pipeline } from "node:stream/promises";
+import { createHash } from "node:crypto";
 import path from "node:path";
 import os from "node:os";
 
 const BIN_DIR = path.resolve(import.meta.dirname, "../src-tauri/binaries");
+
+// Pinned to the stable 7.1 branch instead of master — a master rebuild can
+// silently change filter/encoder behavior underneath us. The asset still
+// auto-updates within the 7.1 branch (security fixes), but behavior stays
+// stable. Override with FFMPEG_WIN_ASSET if the pin ever breaks.
+const BTBN_RELEASE = "latest";
+const WIN_FFMPEG_ASSET =
+  process.env.FFMPEG_WIN_ASSET || "ffmpeg-n7.1-latest-win64-lgpl-7.1.zip";
 
 function targetTriple() {
   if (process.env.TARGET_TRIPLE) return process.env.TARGET_TRIPLE;
@@ -38,13 +54,25 @@ async function download(url, dest) {
   await pipeline(res.body, createWriteStream(dest));
 }
 
+async function sha256(file) {
+  const hash = createHash("sha256");
+  await pipeline(createReadStream(file), hash);
+  return hash.digest("hex");
+}
+
 function extractZip(zipPath, destDir) {
   mkdirSync(destDir, { recursive: true });
   if (process.platform === "win32") {
     try {
       execSync(`tar -xf ${JSON.stringify(zipPath)} -C ${JSON.stringify(destDir)}`, { stdio: "inherit" });
     } catch {
-      execSync(`powershell -Command "Expand-Archive -Path '${zipPath}' -DestinationPath '${destDir}' -Force"`, { stdio: "inherit" });
+      // Single quotes are escaped by doubling; -LiteralPath avoids wildcard
+      // interpretation on paths like C:\Users\O'Brien\AppData\Local\Temp\...
+      const esc = (p) => p.replace(/'/g, "''");
+      execSync(
+        `powershell -NoProfile -Command "Expand-Archive -LiteralPath '${esc(zipPath)}' -DestinationPath '${esc(destDir)}' -Force"`,
+        { stdio: "inherit" },
+      );
     }
   } else {
     try {
@@ -55,36 +83,57 @@ function extractZip(zipPath, destDir) {
   }
 }
 
+// The inner folder name varies per build — locate binaries anywhere in the
+// extracted tree instead of hardcoding it.
+async function findBin(dir, name, depth = 0) {
+  if (depth > 5) return null;
+  let entries;
+  try {
+    entries = await readdir(dir, { withFileTypes: true });
+  } catch {
+    return null;
+  }
+  for (const e of entries) {
+    const p = path.join(dir, e.name);
+    if (e.isDirectory()) {
+      const hit = await findBin(p, name, depth + 1);
+      if (hit) return hit;
+    } else if (e.name === name) {
+      return p;
+    }
+  }
+  return null;
+}
+
 async function btbNWin() {
   const tmp = await mkdtemp(path.join(os.tmpdir(), "ff-btbn-"));
-  const url =
-    "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-lgpl.zip";
+  const base = `https://github.com/BtbN/FFmpeg-Builds/releases/download/${BTBN_RELEASE}`;
   const zip = path.join(tmp, "ff.zip");
-  await download(url, zip);
-  extractZip(zip, tmp);
-  const ffmpeg = path.join(tmp, "ffmpeg-master-latest-win64-lgpl", "bin", "ffmpeg.exe");
-  const ffprobe = path.join(tmp, "ffmpeg-master-latest-win64-lgpl", "bin", "ffprobe.exe");
+  await download(`${base}/${WIN_FFMPEG_ASSET}`, zip);
 
-  // Compress Windows binaries with UPX (LZMA) to reduce size by ~75%
-  let upxExe = "upx";
-  try {
-    // Check if system has upx installed
-    execSync("upx --version", { stdio: "ignore" });
-  } catch {
-    // Download portable UPX
-    const upxUrl = "https://github.com/upx/upx/releases/download/v4.2.4/upx-4.2.4-win64.zip";
-    const upxZip = path.join(tmp, "upx.zip");
-    await download(upxUrl, upxZip);
-    extractZip(upxZip, tmp);
-    upxExe = path.join(tmp, "upx-4.2.4-win64", "upx.exe");
+  // Verify against the checksum file published with the same release.
+  const checksumsPath = path.join(tmp, "checksums.sha256");
+  await download(`${base}/checksums.sha256`, checksumsPath);
+  const lines = (await readFile(checksumsPath, "utf8"))
+    .split("\n")
+    .map((l) => l.trim().split(/\s+/))
+    .filter((parts) => parts.length >= 2);
+  const entry = lines.find((parts) => parts[parts.length - 1] === WIN_FFMPEG_ASSET);
+  if (!entry) throw new Error(`No checksum entry for ${WIN_FFMPEG_ASSET}`);
+  const actual = await sha256(zip);
+  if (actual !== entry[0]) {
+    throw new Error(
+      `Checksum mismatch for ${WIN_FFMPEG_ASSET}: expected ${entry[0]}, got ${actual}`,
+    );
   }
+  console.log(`checksum ok: ${WIN_FFMPEG_ASSET}`);
 
-  console.log(`compressing ${ffmpeg} with UPX...`);
-  execSync(`${JSON.stringify(upxExe)} --best --lzma ${JSON.stringify(ffmpeg)}`, { stdio: "inherit" });
-
-  console.log(`compressing ${ffprobe} with UPX...`);
-  execSync(`${JSON.stringify(upxExe)} --best --lzma ${JSON.stringify(ffprobe)}`, { stdio: "inherit" });
-
+  extractZip(zip, tmp);
+  const ffmpeg = await findBin(tmp, "ffmpeg.exe");
+  const ffprobe = await findBin(tmp, "ffprobe.exe");
+  if (!ffmpeg || !ffprobe) {
+    throw new Error("ffmpeg.exe / ffprobe.exe not found inside extracted archive");
+  }
   return { ffmpeg, ffprobe };
 }
 
@@ -93,20 +142,23 @@ async function main() {
   mkdirSync(BIN_DIR, { recursive: true });
 
   if (triple.includes("android")) {
+    // Mirrors the per-arch build dir naming in build-ffmpeg-minimal.sh.
+    const androidArch = triple.split("-")[0]; // aarch64 | armv7 | x86_64 | i686
+    const buildDir = path.join(BIN_DIR, `build-minimal-android-${androidArch}`);
     execSync("bash scripts/build-ffmpeg-minimal.sh", {
       stdio: "inherit",
       env: { ...process.env, TARGET_TRIPLE: triple },
     });
     const paths = {
-      ffmpeg: path.join(BIN_DIR, "build-minimal-android", "bin", "ffmpeg"),
-      ffprobe: path.join(BIN_DIR, "build-minimal-android", "bin", "ffprobe"),
+      ffmpeg: path.join(buildDir, "bin", "ffmpeg"),
+      ffprobe: path.join(buildDir, "bin", "ffprobe"),
     };
     for (const name of ["ffmpeg", "ffprobe"]) {
       if (!existsSync(paths[name])) {
         throw new Error(`Expected ${paths[name]} to exist after build`);
       }
       const dest = path.join(BIN_DIR, `${name}-${triple}`);
-      execSync(`cp ${JSON.stringify(paths[name])} ${JSON.stringify(dest)}`);
+      copyFileSync(paths[name], dest);
       try { chmodSync(dest, 0o755); } catch {}
       console.log(`installed ${dest}`);
     }

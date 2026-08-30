@@ -23,29 +23,58 @@ if [[ "$TARGET_TRIPLE" == *"android"* ]]; then
 fi
 
 if [[ "$IS_ANDROID" == "1" ]]; then
-  BUILD_DIR="$ROOT/src-tauri/binaries/build-minimal-android"
+  # Derive arch/host/compiler from the target triple so --target armv7/x86_64
+  # actually produces matching binaries (previously hardcoded to aarch64).
+  case "$TARGET_TRIPLE" in
+    aarch64-linux-android)
+      ANDROID_ARCH="aarch64"; ANDROID_HOST="aarch64-linux-android"; ANDROID_CPU="armv8-a"
+      ANDROID_CC="aarch64-linux-android24-clang"
+      ;;
+    armv7-linux-androideabi)
+      ANDROID_ARCH="arm"; ANDROID_HOST="arm-linux-androideabi"; ANDROID_CPU="armv7-a"
+      ANDROID_CC="armv7a-linux-androideabi24-clang"
+      ;;
+    x86_64-linux-android)
+      ANDROID_ARCH="x86_64"; ANDROID_HOST="x86_64-linux-android"; ANDROID_CPU="x86_64"
+      ANDROID_CC="x86_64-linux-android24-clang"
+      ;;
+    i686-linux-android)
+      ANDROID_ARCH="i686"; ANDROID_HOST="i686-linux-android"; ANDROID_CPU="i686"
+      ANDROID_CC="i686-linux-android24-clang"
+      ;;
+    *)
+      echo "Unsupported Android target triple: $TARGET_TRIPLE"; exit 1
+      ;;
+  esac
+
+  BUILD_DIR="$ROOT/src-tauri/binaries/build-minimal-android-$ANDROID_ARCH"
   DEPS="$BUILD_DIR/deps"
-  
+
   NDK_DIR="${NDK_HOME:-${ANDROID_NDK_HOME:-}}"
   if [[ -z "$NDK_DIR" || ! -d "$NDK_DIR" ]]; then
     echo "NDK_HOME not set or not found for Android build: $NDK_DIR"
     exit 1
   fi
-  
-  TOOLCHAIN="$NDK_DIR/toolchains/llvm/prebuilt/linux-x86_64"
-  if [[ ! -d "$TOOLCHAIN" ]]; then
-    TOOLCHAIN="$NDK_DIR/toolchains/llvm/prebuilt/darwin-x86_64"
+
+  TOOLCHAIN=""
+  for prebuilt in linux-x86_64 darwin-x86_64 darwin-arm64 windows-x86_64; do
+    candidate="$NDK_DIR/toolchains/llvm/prebuilt/$prebuilt"
+    if [[ -d "$candidate" ]]; then TOOLCHAIN="$candidate"; break; fi
+  done
+  if [[ -z "$TOOLCHAIN" ]]; then
+    echo "No NDK toolchain prebuilt found (looked for linux-x86_64, darwin-*, windows-x86_64)"
+    exit 1
   fi
-  if [[ ! -d "$TOOLCHAIN" ]]; then
-    TOOLCHAIN="$NDK_DIR/toolchains/llvm/prebuilt/darwin-arm64"
-  fi
-  
-  CC="$TOOLCHAIN/bin/aarch64-linux-android24-clang"
-  CXX="$TOOLCHAIN/bin/aarch64-linux-android24-clang++"
+
+  CC="$TOOLCHAIN/bin/$ANDROID_CC"
+  CXX="${CC}++"
   AR="$TOOLCHAIN/bin/llvm-ar"
   RANLIB="$TOOLCHAIN/bin/llvm-ranlib"
   STRIP="$TOOLCHAIN/bin/llvm-strip"
   SYSROOT="$TOOLCHAIN/sysroot"
+  # Android 15+ devices ship 16KB memory pages; Play requires 16KB-aligned
+  # ELF segments for targetSdk 35+. Explicit flag works on NDK r26+.
+  ANDROID_LINK_FLAGS="-Wl,-z,max-page-size=16384"
 fi
 
 if [[ -x "$BUILD_DIR/bin/ffmpeg" && -x "$BUILD_DIR/bin/ffprobe" && "${FORCE:-0}" != "1" ]]; then
@@ -69,7 +98,7 @@ build_lame() {
   fetch "https://downloads.sourceforge.net/project/lame/lame/$LAME_VERSION/lame-$LAME_VERSION.tar.gz" "lame.tar.gz"
   rm -rf "$CACHE/lame" && mkdir -p "$CACHE/lame" && tar xzf "$CACHE/lame.tar.gz" -C "$CACHE/lame" --strip-components=1
   if [[ "$IS_ANDROID" == "1" ]]; then
-    (cd "$CACHE/lame" && ./configure --host=aarch64-linux-android --prefix="$DEPS" CC="$CC" AR="$AR" RANLIB="$RANLIB" --disable-shared --enable-static --disable-frontend --disable-debug && make -j"$JOBS" && make install)
+    (cd "$CACHE/lame" && ./configure --host="$ANDROID_HOST" --prefix="$DEPS" CC="$CC" AR="$AR" RANLIB="$RANLIB" --disable-shared --enable-static --disable-frontend --disable-debug && make -j"$JOBS" && make install)
   else
     (cd "$CACHE/lame" && ./configure --prefix="$DEPS" --disable-shared --enable-static --disable-frontend --disable-debug && make -j"$JOBS" && make install)
   fi
@@ -90,7 +119,7 @@ build_opus() {
   fetch "https://downloads.xiph.org/releases/opus/opus-$OPUS_VERSION.tar.gz" "opus.tar.gz"
   rm -rf "$CACHE/opus" && mkdir -p "$CACHE/opus" && tar xzf "$CACHE/opus.tar.gz" -C "$CACHE/opus" --strip-components=1
   if [[ "$IS_ANDROID" == "1" ]]; then
-    (cd "$CACHE/opus" && ./configure --host=aarch64-linux-android --prefix="$DEPS" CC="$CC" AR="$AR" RANLIB="$RANLIB" --disable-shared --enable-static --disable-doc --disable-extra-programs \
+    (cd "$CACHE/opus" && ./configure --host="$ANDROID_HOST" --prefix="$DEPS" CC="$CC" AR="$AR" RANLIB="$RANLIB" --disable-shared --enable-static --disable-doc --disable-extra-programs \
       && make -j"$JOBS" && make install)
   else
     (cd "$CACHE/opus" && ./configure --prefix="$DEPS" --disable-shared --enable-static --disable-doc --disable-extra-programs \
@@ -110,8 +139,8 @@ build_ffmpeg() {
       --prefix="$BUILD_DIR" \
       --enable-cross-compile \
       --target-os=android \
-      --arch=aarch64 \
-      --cpu=armv8-a \
+      --arch="$ANDROID_ARCH" \
+      --cpu="$ANDROID_CPU" \
       --cc="$CC" \
       --cxx="$CXX" \
       --ar="$AR" \
@@ -123,7 +152,7 @@ build_ffmpeg() {
       --enable-libmp3lame --enable-libopus \
       --enable-ffmpeg --enable-ffprobe \
       --extra-cflags="-I$DEPS/include -fPIE -fPIC" \
-      --extra-ldflags="-L$DEPS/lib -pie" \
+      --extra-ldflags="-L$DEPS/lib -pie $ANDROID_LINK_FLAGS" \
       --disable-x86asm \
       && make -j"$JOBS" && make install) \
     || { echo "=== FFMPEG ANDROID BUILD FAILED — config.log tail ==="; tail -40 "$CACHE/ffmpeg/ffbuild/config.log" 2>/dev/null; exit 1; }

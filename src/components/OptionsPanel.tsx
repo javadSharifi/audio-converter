@@ -14,6 +14,7 @@ import {
 } from "../types";
 import { parseDurationInput, formatBytes } from "../utils/format";
 import { estimateOutputBytes, growthHint } from "../utils/estimate";
+import { isAndroid } from "../utils/platform";
 
 const FORMATS: AudioFormat[] = ["mp3", "aac", "m4a", "opus", "wav", "flac"];
 
@@ -33,10 +34,14 @@ export function OptionsPanel(): React.JSX.Element {
   const files = useAppStore((s) => s.files);
   const update = useAppStore((s) => s.updateOptions);
   const [advancedOpen, setAdvancedOpen] = useState(false);
-  const [splitRaw, setSplitRaw] = useState("60");
 
   const lossy = isLossy(options.format);
   const bitrates = options.format === "mp3" ? MP3_BITRATES : AAC_OPUS_BITRATES;
+
+  // Derive the display text from the ACTUAL applied value — a hardcoded
+  // default here once showed "60" (minutes) while the store still held
+  // 600 SECONDS, so users got far more parts than the field promised.
+  const [splitRaw, setSplitRaw] = useState(() => String((options.splitDurationSecs ?? 3600) / 60));
 
   // Per-format size estimates (each format has its own typical bitrate).
   const estFor = (fmt: AudioFormat): { size: string; delta: string } | null => {
@@ -58,6 +63,10 @@ export function OptionsPanel(): React.JSX.Element {
     const dir = await open({ directory: true, multiple: false });
     if (typeof dir === "string") update({ customOutputDir: dir });
   };
+
+  // Android: no SAF folder picker, outputs always land in the shared
+  // Music/AudioConverter collection (handled by the backend).
+  const android = isAndroid();
 
   return (
     <section className="glass-panel flex flex-col gap-5 rounded-3xl p-5 md:p-6 shadow-sm">
@@ -171,7 +180,13 @@ export function OptionsPanel(): React.JSX.Element {
             <input
               type="checkbox"
               checked={options.splitEnabled}
-              onChange={(e) => update({ splitEnabled: e.target.checked })}
+              onChange={(e) => {
+                update({ splitEnabled: e.target.checked });
+                // Enabling must apply the value the field is SHOWING —
+                // the input only syncs on typing, so a freshly-toggled
+                // checkbox could otherwise encode a stale store value.
+                if (e.target.checked) applySplitInput(splitRaw);
+              }}
               data-testid="split-toggle"
               className="h-4 w-4 rounded accent-orange-500 cursor-pointer"
             />
@@ -204,48 +219,56 @@ export function OptionsPanel(): React.JSX.Element {
       {/* Output location (iOS Segmented Grouped Control) */}
       <div>
         <label className="mb-2 block text-xs font-semibold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">{translate(lang, "outputLocation")}</label>
-        <div className="grid grid-cols-3 gap-1.5 rounded-2xl border border-black/5 bg-black/[0.03] p-1.5 dark:border-white/5 dark:bg-white/[0.03]">
-          {(["same_as_source", "custom_folder", "per_source_folder"] as OutputMode[]).map((mode) => {
-            const active = options.outputMode === mode;
-            const label =
-              mode === "same_as_source"
-                ? translate(lang, "outSameAsSource")
-                : mode === "custom_folder"
-                  ? translate(lang, "outCustomFolder")
-                  : translate(lang, "outPerSourceFolder");
-            return (
-              <button
-                key={mode}
-                type="button"
-                onClick={() => update({ outputMode: mode })}
-                className={`rounded-xl py-2 px-2 text-center text-xs font-semibold transition-all duration-200 active:scale-95 truncate
-                  ${active
-                    ? "bg-white text-orange-600 shadow-md shadow-black/5 dark:bg-zinc-800 dark:text-orange-400 dark:shadow-black/20"
-                    : "text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white"}`}
-              >
-                {label}
-              </button>
-            );
-          })}
-        </div>
-
-        {options.outputMode === "custom_folder" && (
-          <div className="glass-card mt-3 flex items-center justify-between gap-3 rounded-2xl p-3.5 animate-in fade-in duration-200">
-            <div className="flex min-w-0 flex-1 items-center gap-2.5">
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-orange-500/10 text-orange-500">
-                📁
-              </div>
-              <span className="truncate text-xs font-medium text-zinc-700 dark:text-zinc-300" title={options.customOutputDir ?? ""}>
-                {options.customOutputDir || "—"}
-              </span>
-            </div>
-            <button
-              onClick={() => void pickFolder()}
-              className="shrink-0 rounded-xl bg-orange-500 px-3.5 py-2 text-xs font-bold text-white shadow-sm shadow-orange-500/25 hover:bg-orange-600 active:scale-95 transition-all"
-            >
-              {translate(lang, "chooseFolder")}
-            </button>
+        {android ? (
+          <p className="glass-card rounded-2xl p-3.5 text-xs font-medium text-zinc-600 dark:text-zinc-300">
+            {translate(lang, "outAndroidHint")}
+          </p>
+        ) : (
+          <>
+          <div className="grid grid-cols-3 gap-1.5 rounded-2xl border border-black/5 bg-black/[0.03] p-1.5 dark:border-white/5 dark:bg-white/[0.03]">
+            {(["same_as_source", "custom_folder", "per_source_folder"] as OutputMode[]).map((mode) => {
+              const active = options.outputMode === mode;
+              const label =
+                mode === "same_as_source"
+                  ? translate(lang, "outSameAsSource")
+                  : mode === "custom_folder"
+                    ? translate(lang, "outCustomFolder")
+                    : translate(lang, "outPerSourceFolder");
+              return (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => update({ outputMode: mode })}
+                  className={`rounded-xl py-2 px-2 text-center text-xs font-semibold transition-all duration-200 active:scale-95 truncate
+                    ${active
+                      ? "bg-white text-orange-600 shadow-md shadow-black/5 dark:bg-zinc-800 dark:text-orange-400 dark:shadow-black/20"
+                      : "text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white"}`}
+                >
+                  {label}
+                </button>
+              );
+            })}
           </div>
+
+          {options.outputMode === "custom_folder" && (
+            <div className="glass-card mt-3 flex items-center justify-between gap-3 rounded-2xl p-3.5 animate-in fade-in duration-200">
+              <div className="flex min-w-0 flex-1 items-center gap-2.5">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-orange-500/10 text-orange-500">
+                  📁
+                </div>
+                <span className="truncate text-xs font-medium text-zinc-700 dark:text-zinc-300" title={options.customOutputDir ?? ""}>
+                  {options.customOutputDir || "—"}
+                </span>
+              </div>
+              <button
+                onClick={() => void pickFolder()}
+                className="shrink-0 rounded-xl bg-orange-500 px-3.5 py-2 text-xs font-bold text-white shadow-sm shadow-orange-500/25 hover:bg-orange-600 active:scale-95 transition-all"
+              >
+                {translate(lang, "chooseFolder")}
+              </button>
+            </div>
+          )}
+          </>
         )}
       </div>
 

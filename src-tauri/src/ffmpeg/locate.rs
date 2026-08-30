@@ -125,9 +125,15 @@ pub fn ffmpeg_path() -> Result<PathBuf, crate::error::AppError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    /// The env override is process-global; hold this while mutating it so
+    /// parallel unit tests can never observe a half-set FFMPEG_PATH.
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn env_override_wins() {
+        let _guard = ENV_LOCK.lock().unwrap();
         // Point at a file that certainly exists: the manifest itself.
         std::env::set_var("FFMPEG_PATH", env!("CARGO_MANIFEST_DIR"));
         let p = locate("ffmpeg").expect("override should resolve");

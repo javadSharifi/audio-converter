@@ -8,26 +8,31 @@ import android.os.Bundle
 import android.provider.OpenableColumns
 import android.system.Os
 import android.util.Log
+import android.widget.Toast
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import java.io.File
 import java.io.FileOutputStream
-import java.io.InputStream
 
 class MainActivity : TauriActivity() {
   private external fun initNativePaths(nativeLibDir: String, cacheDir: String)
 
   override fun onCreate(savedInstanceState: Bundle?) {
     instance = this
+    appContext = applicationContext
     try {
       val nativeDir = applicationInfo.nativeLibraryDir
       val cDir = cacheDir.absolutePath
-      Log.i(TAG, "Initializing native paths -> nativeLibDir: $nativeDir, cacheDir: $cDir")
-      
-      // Set POSIX environment variables
+      val fDir = filesDir.absolutePath
+      Log.i(TAG, "Initializing native paths -> nativeLibDir: $nativeDir, cacheDir: $cDir, filesDir: $fDir")
+
+      // Set POSIX environment variables read by the Rust side
       Os.setenv("TAURI_ANDROID_NATIVE_LIB_DIR", nativeDir, true)
       Os.setenv("TAURI_ANDROID_CACHE_DIR", cDir, true)
-      
+      // Conversion outputs are written here, then published to
+      // Music/AudioConverter (MediaStore) after each job succeeds.
+      Os.setenv("TAURI_ANDROID_FILES_DIR", fDir, true)
+
       // Clean up orphaned staged files from previous sessions / crashes
       cleanupStagingDirectory(this)
 
@@ -44,6 +49,42 @@ class MainActivity : TauriActivity() {
       Log.e(TAG, "Failed to initialize MainActivity", e)
     }
     super.onCreate(savedInstanceState)
+  }
+
+  override fun onDestroy() {
+    // Avoid leaking the Activity through the static handle.
+    if (instance === this) {
+      instance = null
+    }
+    super.onDestroy()
+  }
+
+  override fun onRequestPermissionsResult(
+    requestCode: Int,
+    permissions: Array<out String>,
+    grantResults: IntArray
+  ) {
+    super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+    if (requestCode != PERMISSION_REQ_CODE) return
+
+    if (grantResults.isEmpty()) {
+      Log.w(TAG, "Permission request was cancelled/interrupted")
+      return
+    }
+
+    val denied = permissions.filterIndexed { i, _ ->
+      grantResults[i] != PackageManager.PERMISSION_GRANTED
+    }
+    if (denied.isEmpty()) {
+      Log.i(TAG, "Media permissions granted")
+    } else {
+      Log.w(TAG, "Media permissions denied: $denied")
+      Toast.makeText(
+        this,
+        getString(R.string.permission_denied_hint),
+        Toast.LENGTH_LONG
+      ).show()
+    }
   }
 
   fun checkAndRequestMediaPermissions(): Boolean {
@@ -77,7 +118,15 @@ class MainActivity : TauriActivity() {
     private const val BUFFER_SIZE = 64 * 1024 // 64 KB buffer for fast stream transfers
     private const val SAFETY_MARGIN_BYTES = 50L * 1024 * 1024 // 50 MB safety margin
 
+    /** Activity handle (cleared in onDestroy to avoid leaks). */
     var instance: MainActivity? = null
+
+    /**
+     * Application context — survives activity recreation, so background JNI
+     * calls (staging, output publishing) work even while the UI restarts.
+     * Holding an application context never leaks.
+     */
+    private var appContext: android.content.Context? = null
 
     @JvmStatic
     fun cleanupStagingDirectory(context: android.content.Context) {
@@ -97,26 +146,84 @@ class MainActivity : TauriActivity() {
       }
     }
 
+    /** MIME type for an audio output extension (all our supported formats). */
+    private fun mimeFor(ext: String): String = when (ext.lowercase()) {
+      "mp3" -> "audio/mpeg"
+      "aac" -> "audio/aac"
+      "m4a" -> "audio/mp4"
+      "opus" -> "audio/opus"
+      "ogg" -> "audio/ogg"
+      "wav" -> "audio/x-wav"
+      "flac" -> "audio/flac"
+      else -> "audio/mpeg"
+    }
+
+    /**
+     * Publish finished outputs into the shared media collection
+     * Music/AudioConverter via MediaStore — visible in any file manager
+     * without any storage permission (API 29+). Input and result are
+     * newline-joined path lists. Entries that cannot be published are
+     * returned unchanged (the file stays in the app's internal dir).
+     */
     @JvmStatic
-    fun deleteStagedFile(filePath: String): Boolean {
-      return try {
-        val f = File(filePath)
-        if (f.exists() && f.parentFile?.name == "staged_inputs") {
-          val deleted = f.delete()
-          Log.i(TAG, "Deleted staged file $filePath: $deleted")
-          deleted
-        } else {
-          false
+    fun publishOutputs(joined: String): String {
+      val context = appContext ?: return joined
+      if (joined.isBlank()) return joined
+      val results = ArrayList<String>()
+      for (path in joined.split("\n")) {
+        try {
+          val src = File(path)
+          // Only publish files produced by our own internal output dir.
+          if (!src.exists() || !src.absolutePath.startsWith(context.filesDir.absolutePath)) {
+            results.add(path)
+            continue
+          }
+
+          val values = android.content.ContentValues().apply {
+            put(android.provider.MediaStore.Audio.Media.DISPLAY_NAME, src.name)
+            put(android.provider.MediaStore.Audio.Media.MIME_TYPE, mimeFor(src.extension))
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+              put(android.provider.MediaStore.Audio.Media.RELATIVE_PATH, "Music/AudioConverter")
+            }
+          }
+          val uri = context.contentResolver.insert(
+            android.provider.MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, values
+          )
+          if (uri == null) {
+            Log.w(TAG, "MediaStore insert failed for $path")
+            results.add(path)
+            continue
+          }
+
+          val copied = context.contentResolver.openOutputStream(uri)?.use { os ->
+            src.inputStream().use { input ->
+              input.copyTo(os, BUFFER_SIZE)
+              true
+            }
+          } ?: false
+          if (!copied) {
+            Log.w(TAG, "Copy to MediaStore failed for $path")
+            results.add(path)
+            continue
+          }
+
+          val published = "Music/AudioConverter/${src.name}"
+          Log.i(TAG, "Published output: $path -> $published")
+          if (!src.delete()) {
+            Log.w(TAG, "Internal output copy could not be removed: $path")
+          }
+          results.add(published)
+        } catch (e: Throwable) {
+          Log.w(TAG, "publishOutputs failed for $path", e)
+          results.add(path)
         }
-      } catch (e: Throwable) {
-        Log.w(TAG, "Failed to delete staged file $filePath", e)
-        false
       }
+      return results.joinToString("\n")
     }
 
     @JvmStatic
     fun resolveUriToLocalPath(uriString: String): String {
-      val context = instance ?: return uriString
+      val context = appContext ?: return uriString
       try {
         // If already a regular accessible filesystem path
         if (!uriString.startsWith("content://") && !uriString.startsWith("file://")) {
@@ -174,7 +281,9 @@ class MainActivity : TauriActivity() {
           stagingDir.mkdirs()
         }
 
-        val safeName = fileName.replace(Regex("[^a-zA-Z0-9._-]"), "_")
+        // Keep Unicode (e.g. Persian) titles — only strip filesystem-illegal
+        // and control characters so output names stay meaningful.
+        val safeName = fileName.replace(Regex("[\\\\/:*?\"<>|\\x00-\\x1F]"), "_")
         val destFile = File(stagingDir, "${System.currentTimeMillis()}_$safeName")
 
         Log.i(TAG, "Copying Content URI to local cache: $uriString -> ${destFile.absolutePath}")
@@ -194,6 +303,14 @@ class MainActivity : TauriActivity() {
 
         Log.i(TAG, "Staging completed successfully: ${destFile.absolutePath} (${destFile.length()} bytes)")
         return destFile.absolutePath
+      } catch (e: SecurityException) {
+        Log.e(TAG, "Permission denied while resolving URI: $uriString", e)
+        Toast.makeText(
+          context,
+          context.getString(R.string.permission_denied_hint),
+          Toast.LENGTH_LONG
+        ).show()
+        return uriString
       } catch (e: Throwable) {
         Log.e(TAG, "Failed to resolve URI to local path: $uriString", e)
         return uriString

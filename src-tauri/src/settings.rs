@@ -105,7 +105,13 @@ impl Settings {
         let mut clean = self.clone();
         clean.validate()?;
         let json = serde_json::to_string_pretty(&clean).map_err(|e| e.to_string())?;
-        std::fs::write(&path, json).map_err(|e| e.to_string())
+        // Atomic write: a crash mid-write must never corrupt settings.json.
+        let tmp = path.with_extension("json.tmp");
+        std::fs::write(&tmp, json).map_err(|e| e.to_string())?;
+        std::fs::rename(&tmp, &path).map_err(|e| {
+            let _ = std::fs::remove_file(&tmp);
+            e.to_string()
+        })
     }
 }
 
@@ -124,6 +130,10 @@ pub fn default_concurrency() -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    /// Tests that mutate process-wide env vars must hold this lock.
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn defaults_valid() {
@@ -167,12 +177,32 @@ mod tests {
 
     #[test]
     fn load_survives_corrupt_file() {
+        // Serialize env-var mutation — unit tests share one process.
+        let _guard = ENV_LOCK.lock().unwrap();
         let dir = std::env::temp_dir().join(format!("ac-settings-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         std::env::set_var("AUDIO_CONVERTER_DATA_DIR", &dir);
         std::fs::write(dir.join("settings.json"), "{not json").unwrap();
         let s = Settings::load();
         assert_eq!(s, Settings::default());
+        std::fs::remove_dir_all(&dir).unwrap();
+        std::env::remove_var("AUDIO_CONVERTER_DATA_DIR");
+    }
+
+    #[test]
+    fn save_is_atomic_and_round_trips() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let dir = std::env::temp_dir().join(format!("ac-settings-atomic-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::env::set_var("AUDIO_CONVERTER_DATA_DIR", &dir);
+
+        let mut s = Settings::default();
+        s.language = "fa".into();
+        s.save().unwrap();
+        assert!(dir.join("settings.json").exists());
+        assert!(!dir.join("settings.json.tmp").exists());
+        assert_eq!(Settings::load(), s);
+
         std::fs::remove_dir_all(&dir).unwrap();
         std::env::remove_var("AUDIO_CONVERTER_DATA_DIR");
     }

@@ -9,24 +9,54 @@ use crate::queue::{JobRecord, QueueManager};
 use crate::settings::Settings;
 use crate::types::{ConversionOptions, FileMeta, TrimSpec};
 
-/// Pre-resolve media paths (e.g. Android Content URIs to cached files)
+/// Result of pre-resolving one input path (e.g. Android Content URIs to
+/// cached local files). `resolved` equals `input` when no staging happened
+/// or when staging failed (the error field then explains why).
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ResolvedMediaPath {
+    pub input: String,
+    pub resolved: String,
+    pub error: Option<String>,
+}
+
+/// Pre-resolve media paths (e.g. Android Content URIs to cached files).
+/// Never fails wholesale — each path carries its own optional error so one
+/// bad URI cannot blank out the whole batch.
 #[tauri::command]
 #[specta::specta]
-pub async fn resolve_media_paths(paths: Vec<String>) -> Vec<String> {
+pub async fn resolve_media_paths(paths: Vec<String>) -> Vec<ResolvedMediaPath> {
     tauri::async_runtime::spawn_blocking(move || {
         paths
             .into_iter()
-            .map(|p| crate::android_fs::ensure_local_path(&p))
+            .map(|input| {
+                let resolved = crate::android_fs::ensure_local_path(&input);
+                let error = (resolved == input && input.starts_with("content://"))
+                    .then(|| "Could not copy the selected file into app storage".to_string());
+                ResolvedMediaPath {
+                    input,
+                    resolved,
+                    error,
+                }
+            })
             .collect()
     })
     .await
     .unwrap_or_default()
 }
 
-/// Probe files for the UI list. Per-file errors land in `FileMeta.error`
-/// instead of failing the whole call.
-/// Probe files for the UI list in parallel across threads. Per-file errors land in `FileMeta.error`
-/// instead of failing the whole call. Runs asynchronously without blocking Tauri's main loop.
+/// Explicitly delete a previously staged Android input file (user removed
+/// the row / cleared the list). No-op on desktop and for any path outside
+/// the app's staging directory.
+#[tauri::command]
+#[specta::specta]
+pub fn delete_staged_input(path: String) {
+    crate::android_fs::delete_staged_input(&path);
+}
+
+/// Probe files for the UI list in parallel with a bounded worker pool.
+/// Per-file errors land in `FileMeta.error` instead of failing the whole
+/// call. Runs asynchronously without blocking Tauri's main loop.
 #[tauri::command]
 #[specta::specta]
 pub async fn probe_files(paths: Vec<String>) -> Vec<FileMeta> {
@@ -61,28 +91,48 @@ pub async fn probe_files(paths: Vec<String>) -> Vec<FileMeta> {
                 .collect();
         }
 
-        // Parallel probe with thread::scope for instant batch metadata resolution
+        // Parallel probe with a bounded worker pool — one thread + one ffprobe
+        // process per file would thrash on large drops (300 files = 300 spawns).
+        let max_workers = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(4)
+            .clamp(1, 8);
+        let workers = max_workers.min(paths.len());
+        let next = std::sync::atomic::AtomicUsize::new(0);
+        let results: std::sync::Mutex<Vec<Option<FileMeta>>> =
+            std::sync::Mutex::new(vec![None; paths.len()]);
+
         std::thread::scope(|s| {
-            let mut handles = Vec::with_capacity(paths.len());
-            for path in paths {
-                let ffprobe_ref = &ffprobe;
-                handles.push(s.spawn(move || {
-                    match probe_file_meta(ffprobe_ref, &path) {
+            for _ in 0..workers {
+                s.spawn(|| loop {
+                    let i = next.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    if i >= paths.len() {
+                        break;
+                    }
+                    let path = &paths[i];
+                    let meta = match probe_file_meta(&ffprobe, path) {
                         Ok(meta) => meta,
                         Err(e) => FileMeta {
-                            name: file_name_of(&path),
-                            path,
+                            name: file_name_of(path),
+                            path: path.clone(),
                             size_bytes: 0,
                             duration_secs: 0.0,
                             format_name: String::new(),
                             has_audio: false,
                             error: Some(e.to_string()),
                         },
-                    }
-                }));
+                    };
+                    results.lock().unwrap()[i] = Some(meta);
+                });
             }
-            handles.into_iter().map(|h| h.join().unwrap()).collect()
-        })
+        });
+
+        results
+            .into_inner()
+            .unwrap()
+            .into_iter()
+            .map(|m| m.expect("every probe slot filled"))
+            .collect()
     })
     .await
     .unwrap_or_default()
@@ -136,7 +186,18 @@ pub async fn waveform_peaks(path: String, buckets: Option<u32>) -> Result<Vec<[f
     tauri::async_runtime::spawn_blocking(move || {
         let ffmpeg = crate::ffmpeg::locate::ffmpeg_path()
             .map_err(|_| AppError::Other("Bundled ffmpeg binary is missing".into()))?;
-        let peaks = crate::ffmpeg::waveform::extract_peaks(&ffmpeg, &path, buckets)?;
+        // A duration hint lets the peak extractor stream: buckets are aligned
+        // to the FULL file duration and no large PCM buffer is allocated.
+        let duration = probe::probe_file(
+            &crate::ffmpeg::locate::locate("ffprobe")
+                .map_err(|_| AppError::Other("Bundled ffprobe binary is missing".into()))?,
+            &path,
+        )
+        .ok()
+        .and_then(|p| p.duration_secs())
+        .filter(|d| *d > 0.0);
+        let peaks =
+            crate::ffmpeg::waveform::extract_peaks(&ffmpeg, &path, buckets, duration)?;
         // Tauri IPC can't carry tuples directly — flatten to [min, max] arrays.
         Ok(peaks.into_iter().map(|(mn, mx)| [mn, mx]).collect())
     })
@@ -171,9 +232,15 @@ pub async fn start_conversion(
     }
     // Reject duplicate sources in one batch — two jobs writing
     // `{stem}.{ext}` next to the same source would collide via unique_path.
+    // Windows paths are case-insensitive, so fold case there.
     let mut seen = std::collections::HashSet::new();
     for item in &items {
-        if !seen.insert(item.path.clone()) {
+        let key = if cfg!(windows) {
+            item.path.to_lowercase()
+        } else {
+            item.path.clone()
+        };
+        if !seen.insert(key) {
             return Err(AppError::InvalidInput(format!(
                 "Duplicate input file: {}",
                 item.path
@@ -192,6 +259,8 @@ pub async fn start_conversion(
     Ok(queue.enqueue(items, options, conc))
 }
 
+// In-memory, microsecond-fast — kept sync on purpose (async commands taking
+// State must return Result in Tauri 2; not worth the churn here).
 #[tauri::command]
 #[specta::specta]
 pub fn cancel_job(queue: State<'_, QueueManager>, job_id: String) {
@@ -241,13 +310,13 @@ pub async fn disk_free(path: String) -> Result<DiskFree> {
     .map_err(|e| AppError::Other(format!("Async task failed: {e}")))?
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 #[specta::specta]
 pub fn get_settings() -> Settings {
     Settings::load()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 #[specta::specta]
 pub fn save_settings(settings: Settings) -> Result<()> {
     settings.save().map_err(AppError::Other)?;
@@ -255,7 +324,7 @@ pub fn save_settings(settings: Settings) -> Result<()> {
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 #[specta::specta]
 pub fn log_frontend(level: String, msg: String) {
     crate::logger::log(&level, &format!("[FRONTEND] {msg}"));

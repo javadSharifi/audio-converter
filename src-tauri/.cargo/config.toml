@@ -1,0 +1,14 @@
+# Android 15+ devices use 16KB memory pages; Play requires 16KB-aligned ELF
+# segments for apps targeting SDK 35+. These flags work on NDK r26+ so the
+# Rust cdylib is aligned even when building with an older NDK.
+[target.aarch64-linux-android]
+rustflags = ["-C", "link-arg=-Wl,-z,max-page-size=16384"]
+
+[target.armv7-linux-androideabi]
+rustflags = ["-C", "link-arg=-Wl,-z,max-page-size=16384"]
+
+[target.i686-linux-android]
+rustflags = ["-C", "link-arg=-Wl,-z,max-page-size=16384"]
+
+[target.x86_64-linux-android]
+rustflags = ["-C", "link-arg=-Wl,-z,max-page-size=16384"]

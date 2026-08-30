@@ -1,0 +1,4 @@
+# Shell scripts must always be LF, even on Windows checkouts —
+# CRLF breaks `bash scripts/*.sh` (local Android builds, ffmpeg fetch).
+*.sh text eol=lf
+*.command text eol=lf

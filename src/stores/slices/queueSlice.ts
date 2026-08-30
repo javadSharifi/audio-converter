@@ -139,10 +139,8 @@ export const createQueueSlice: StateCreator<
           ...raw,
           id: String(raw.id ?? raw.jobId ?? ""),
         };
-        void api.logFrontend(
-          "INFO",
-          `job-event received: id=${item.id}, status=${item.status}, percent=${item.percent}, error=${item.error ?? "none"}, outputs=${item.outputs.length}`,
-        );
+        // No per-event logging here: progress ticks arrive ~4x/s per job and
+        // would spam the IPC channel and app.log.
         set((s) => {
           const jobs = new Map(s.jobs);
           jobs.set(item.id, item);

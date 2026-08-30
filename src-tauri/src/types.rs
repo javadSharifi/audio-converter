@@ -159,7 +159,7 @@ impl Default for ConversionOptions {
             sample_rate_hz: Some(44100),
             channels: Some(2),
             split_enabled: false,
-            split_duration_secs: 600.0,
+            split_duration_secs: 3600.0,
             remove_silence: false,
             silence_threshold_db: -30,
             silence_min_duration_secs: 2.0,

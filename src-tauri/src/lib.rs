@@ -32,11 +32,34 @@ pub extern "C" fn Java_com_audioconverter_app_MainActivity_initNativePaths(
     }
 }
 
+/// Registered by the Android runtime the moment `libaudio_converter.so` is
+/// loaded — independent of MainActivity lifecycle, so the JNI bridge works
+/// even if `initNativePaths` was never called (or failed) in Kotlin.
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub extern "system" fn JNI_OnLoad(
+    vm: *mut jni::sys::JavaVM,
+    _reserved: *mut std::ffi::c_void,
+) -> jni::sys::jint {
+    match unsafe { jni::JavaVM::from_raw(vm) } {
+        Ok(vm) => {
+            android_fs::set_java_vm(vm);
+            log_info!("Android JNI_OnLoad: JavaVM registered");
+            jni::sys::JNI_VERSION_1_6
+        }
+        Err(e) => {
+            log_error!("Android JNI_OnLoad failed: {e}");
+            jni::sys::JNI_ERR
+        }
+    }
+}
+
 use tauri::{Manager, RunEvent};
 
 pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
     tauri_specta::Builder::<tauri::Wry>::new().commands(tauri_specta::collect_commands![
         commands::resolve_media_paths,
+        commands::delete_staged_input,
         commands::probe_files,
         commands::start_conversion,
         commands::waveform_peaks,
@@ -73,7 +96,6 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             let data_dir = app
