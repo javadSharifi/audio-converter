@@ -291,10 +291,11 @@ fn call_static_string(
             .l()
             .map_err(|e| format!("Expected object: {e}"))?;
         let j_str = jni::objects::JString::from(j_obj);
-        Ok(env
+        let s: String = env
             .get_string(&j_str)
             .map_err(|e| format!("Failed to extract Rust string: {e}"))?
-            .into())
+            .into();
+        Ok(s)
     })
 }
 
