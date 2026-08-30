@@ -269,9 +269,12 @@ fn call_static_string_inner(
         .map_err(|e| format!("Failed to create Java string: {e}"))?;
 
     let j_obj = match MAIN_ACTIVITY_CLASS.get() {
-        Some(class) => env
-            .call_static_method(class.as_obj(), method, signature, &[(&j_arg).into()])
-            .map_err(|e| format!("Failed to call {method}: {e}"))?,
+        Some(class) => {
+            // Zero-cost JClass view over the cached GlobalRef's raw object.
+            let cls = unsafe { jni::objects::JClass::from_raw(class.as_obj().as_raw()) };
+            env.call_static_method(&cls, method, signature, &[(&j_arg).into()])
+                .map_err(|e| format!("Failed to call {method}: {e}"))?
+        }
         None => {
             let class = env
                 .find_class("com/audioconverter/app/MainActivity")
