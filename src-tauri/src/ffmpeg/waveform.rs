@@ -342,7 +342,7 @@ mod tests {
     #[test]
     fn streaming_matches_offline_bucketing() {
         let mut pcm = Vec::new();
-        for i in 0..1000 {
+        for i in 0i32..1000 {
             let v: i16 = ((i * 37) % 65536).wrapping_sub(32768) as i16;
             pcm.extend_from_slice(&v.to_le_bytes());
         }
@@ -378,8 +378,8 @@ mod tests {
     fn streaming_empty_input_is_flat_zero() {
         let mut streamer = StreamingBucketer::new(5, 1000);
         streamer.push_bytes(&[]);
-        assert!(streamer.finish().iter().all(|&(mn, mx)| mn == 0.0 && mx == 0.0));
         assert!(!streamer.has_samples());
+        assert!(streamer.finish().iter().all(|&(mn, mx)| mn == 0.0 && mx == 0.0));
     }
 
     #[test]
@@ -388,7 +388,7 @@ mod tests {
         pcm.push(0xAB); // trailing odd byte must be tolerated
         let mut streamer = StreamingBucketer::new(4, 1000);
         streamer.push_bytes(&pcm);
-        assert_eq!(streamer.finish().len(), 4);
         assert!(streamer.has_samples());
+        assert_eq!(streamer.finish().len(), 4);
     }
 }
