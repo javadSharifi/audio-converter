@@ -132,6 +132,7 @@ async function main() {
     // unsuffixed copies serve cargo-test fallback and local dev.
     for (const suffix of [triple, ""]) {
       const base = suffix ? `${name}-${suffix}` : name;
+      const dest = path.join(BIN_DIR, `${base}${exe}`);
       copyFileSync(paths[name], dest);
       try { chmodSync(dest, 0o755); } catch { /* chmod n/a on Windows */ }
       console.log(`installed ${dest}`);
