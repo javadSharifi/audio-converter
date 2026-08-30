@@ -5,7 +5,7 @@
  * - macOS (arm64/x64): built from source via scripts/build-ffmpeg-macos.sh
  *   (prebuilt macOS artifacts are GPL; we ship LGPL).
  * - Linux x64: BtbN "latest-linux64-lgpl" archive.
- * - Windows x64: BtbN pinned 7.1-branch LGPL archive (sha256-verified).
+ * - Windows x64: BtbN pinned stable-branch LGPL archive (sha256-verified).
  *
  * Output layout (Tauri externalBin naming):
  *   src-tauri/binaries/ffmpeg[-{target-triple}]
@@ -28,13 +28,14 @@ import os from "node:os";
 
 const BIN_DIR = path.resolve(import.meta.dirname, "../src-tauri/binaries");
 
-// Pinned to the stable 7.1 branch instead of master — a master rebuild can
-// silently change filter/encoder behavior underneath us. The asset still
-// auto-updates within the 7.1 branch (security fixes), but behavior stays
-// stable. Override with FFMPEG_WIN_ASSET if the pin ever breaks.
+// Pinned to a stable FFmpeg branch instead of master — a master rebuild can
+// silently change filter/encoder behavior underneath us. BtbN rotates the
+// "latest" release daily and occasionally DROPS old-version assets (the 7.1
+// asset vanished on 2026-08-30 → HTTP 404 mid-release), so the version suffix
+// must be revisited when the branch ages out. Override with FFMPEG_WIN_ASSET.
 const BTBN_RELEASE = "latest";
 const WIN_FFMPEG_ASSET =
-  process.env.FFMPEG_WIN_ASSET || "ffmpeg-n7.1-latest-win64-lgpl-7.1.zip";
+  process.env.FFMPEG_WIN_ASSET || "ffmpeg-n8.1-latest-win64-lgpl-8.1.zip";
 
 function targetTriple() {
   if (process.env.TARGET_TRIPLE) return process.env.TARGET_TRIPLE;

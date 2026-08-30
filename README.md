@@ -88,8 +88,8 @@ This application bundles **FFmpeg 7.1.1** binaries built from source under the
 - macOS & Linux binaries: compiled from official sources via
   `scripts/build-ffmpeg-minimal.sh` — fully static builds (only system libs
   linked) with libmp3lame + libopus, no GPL components. License: **LGPL v2.1+**.
-- Windows binary: BtbN "lgpl" release archive
-  (`ffmpeg-master-latest-win64-lgpl`), LGPL-licensed build.
+- Windows binary: BtbN "lgpl" release archive, pinned to a stable branch
+  (`ffmpeg-n8.1-latest-win64-lgpl-8.1.zip`), LGPL-licensed build.
 
 These builds contain no GPL-only components (no libx264/x265). The app uses FFmpeg
 solely via its command-line interface as a separate process, which constitutes use
