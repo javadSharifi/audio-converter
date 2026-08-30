@@ -2,14 +2,14 @@
 > **Project:** Audio Converter (Desktop & Mobile Video/Audio to Audio Transcoder)  
 > **Version:** 1.1.1  
 > **Target Audience:** AI Agents, LLM Coding Assistants, Human Maintainers  
-> **Stack:** Tauri v2 + React 19 + TypeScript + Zustand + Tailwind CSS v4 + Rust (2021) + Bundled FFmpeg 7.1.1 (LGPL)
+> **Stack:** Tauri v2 + React 19 + TypeScript + Zustand + Tailwind CSS v4 + Rust (2021) + Bundled FFmpeg 8.1.2 (LGPL)
 
 ---
 
 ## 📌 1. Project Overview & Architecture
 
 ### 1.1 Core Mission
-**Audio Converter** is a cross-platform desktop application designed to convert video and audio files into optimized audio formats (`MP3`, `WAV`, `AAC`, `M4A`, `FLAC`, `Opus`). It operates with **zero external runtime dependencies** for end users by bundling platform-specific, statically compiled **LGPL FFmpeg 7.1.1** binaries.
+**Audio Converter** is a cross-platform desktop application designed to convert video and audio files into optimized audio formats (`MP3`, `WAV`, `AAC`, `M4A`, `FLAC`, `Opus`). It operates with **zero external runtime dependencies** for end users by bundling platform-specific, statically compiled **LGPL FFmpeg 8.1.2** binaries.
 
 ### 1.2 Key Capabilities
 - **Probing & Ingestion:** Probes files via `ffprobe` (JSON output) rather than relying on file extensions.
@@ -215,7 +215,7 @@ Below is the exhaustive catalog of every file in the repository, explaining its 
 | File | Purpose & Details |
 | :--- | :--- |
 | `scripts/fetch-ffmpeg.mjs` | **FFmpeg Fetcher/Builder Node Script:** Automates acquiring bundled binaries. On macOS/Linux, invokes `build-ffmpeg-minimal.sh`. On Windows, downloads official BtbN LGPL static build. Copies binaries to `src-tauri/binaries/` with target-triple naming (`ffmpeg-aarch64-apple-darwin`, etc.). |
-| `scripts/build-ffmpeg-minimal.sh` | **Minimal Static LGPL FFmpeg Builder:** Shell script downloading and building minimal FFmpeg 7.1.1, LAME 3.100, and Opus 1.6.1 from source with all non-LGPL and video encoder options disabled for fully portable, lightweight static binaries. |
+| `scripts/build-ffmpeg-minimal.sh` | **Minimal Static LGPL FFmpeg Builder:** Shell script downloading and building minimal FFmpeg 8.1.2, LAME 3.100, and Opus 1.6.1 from source with all non-LGPL and video encoder options disabled for fully portable, lightweight static binaries. |
 | `scripts/gen-icons.py` | **App Icon Generator:** Standalone Python script that generates PNG icons (16x16 up to 1024x1024), `icon.ico` for Windows, and `icon.icns` for macOS using pure Python PNG encoding and macOS `iconutil`. |
 
 ---

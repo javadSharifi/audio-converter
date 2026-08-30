@@ -82,7 +82,7 @@ guard precedes every output path. Unicode/Persian paths are handled natively end
 
 ## Third-party licenses
 
-This application bundles **FFmpeg 7.1.1** binaries built from source under the
+This application bundles **FFmpeg 8.1.2** binaries built from source under the
 **GNU Lesser General Public License (LGPL) v2.1-or-later**:
 
 - macOS & Linux binaries: compiled from official sources via

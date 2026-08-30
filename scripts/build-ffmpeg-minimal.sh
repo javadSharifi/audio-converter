@@ -7,7 +7,7 @@
 # dev packages — and stay small compared to "kitchen sink" builds.
 set -euo pipefail
 
-FF_VERSION="7.1.1"
+FF_VERSION="8.1.2"
 LAME_VERSION="3.100"
 OPUS_VERSION="1.6.1"
 
