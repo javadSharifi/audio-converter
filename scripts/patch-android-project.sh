@@ -71,16 +71,50 @@ fi
 
 # --- 3. Runtime media permissions ---------------------------------------------
 if [ -f "$MANIFEST" ] && ! grep -q "READ_MEDIA_AUDIO" "$MANIFEST"; then
-  sed -i 's|<manifest[^>]*>|&\n    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />\n    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />\n    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />\n    <!-- MediaStore publishing of outputs on Android 9 and below -->\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />|' "$MANIFEST"
+  node -e '
+    const fs = require("fs");
+    const p = process.argv[1];
+    let content = fs.readFileSync(p, "utf8");
+    const perms = "\n    <uses-permission android:name=\"android.permission.READ_MEDIA_AUDIO\" />" +
+      "\n    <uses-permission android:name=\"android.permission.READ_MEDIA_VIDEO\" />" +
+      "\n    <uses-permission android:name=\"android.permission.READ_EXTERNAL_STORAGE\" android:maxSdkVersion=\"32\" />" +
+      "\n    <!-- MediaStore publishing of outputs on Android 9 and below -->" +
+      "\n    <uses-permission android:name=\"android.permission.WRITE_EXTERNAL_STORAGE\" android:maxSdkVersion=\"28\" />";
+    content = content.replace(/<manifest[^>]*>/, "$&" + perms);
+    fs.writeFileSync(p, content);
+  ' "$MANIFEST"
 fi
 
-# --- 4. Custom MainActivity (JNI bridge + URI staging + permission prompts) ---
+# --- 4. Custom MainActivity & ProGuard rules (JNI bridge preservation) --------
 if [ -f "$ROOT/src-tauri/android/MainActivity.kt" ]; then
   mkdir -p "$GEN/app/src/main/java/com/audioconverter/app"
   cp -f "$ROOT/src-tauri/android/MainActivity.kt" "$GEN/app/src/main/java/com/audioconverter/app/MainActivity.kt"
 else
   echo "WARNING: src-tauri/android/MainActivity.kt not found — URI staging will not work!" >&2
 fi
+
+cat > "$GEN/app/proguard-rules.pro" << 'EOF'
+-keep class com.audioconverter.app.MainActivity {
+    public static <methods>;
+    public <methods>;
+    *;
+}
+-keep class com.audioconverter.app.MainActivity$Companion {
+    public <methods>;
+    *;
+}
+-keepclassmembers class com.audioconverter.app.MainActivity {
+    public static <methods>;
+    *;
+}
+-keepclassmembers class com.audioconverter.app.MainActivity$Companion {
+    public <methods>;
+    *;
+}
+-keepclasseswithmembers class * {
+    native <methods>;
+}
+EOF
 
 # --- 5. ffmpeg/ffprobe as lib*.so into jniLibs ---------------------------------
 FFMPEG_BIN="$ROOT/src-tauri/binaries/ffmpeg-$TRIPLE"

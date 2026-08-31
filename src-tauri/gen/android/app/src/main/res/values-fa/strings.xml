@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">مبدل صوت</string>
+    <string name="permission_denied_hint">برای انتخاب فایل، دسترسی حافظه لازم است. آن را در تنظیمات سیستم ← برنامه‌ها ← مبدل صوت ← دسترسی‌ها فعال کنید.</string>
+</resources>

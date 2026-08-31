@@ -8,4 +8,11 @@ src-tauri/binaries/*
 .DS_Store
 *.dmg
 *.zip
+*.apk
+*.aab
+*.keystore
+*.jks
+.env.android
+secrets.android.env
+local.properties
 

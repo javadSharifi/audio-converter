@@ -1,10 +1,11 @@
 {
   "name": "audio-converter",
   "private": true,
-  "version": "1.2.11",
+  "version": "1.2.12",
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:android": "bash scripts/dev-android.sh",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
@@ -13,6 +14,8 @@
     "check:types": "cargo run --example export_types --manifest-path src-tauri/Cargo.toml && git diff --exit-code src/types/generated.ts",
     "build:android": "bash scripts/build-android-local.sh",
     "build:android:debug": "bash scripts/build-android-local.sh --debug",
+    "android:emulator": "bash scripts/run-android-emulator.sh",
+    "android:emulator:rebuild": "bash scripts/run-android-emulator.sh --rebuild",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml"

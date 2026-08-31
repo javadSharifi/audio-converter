@@ -146,12 +146,7 @@ export default function App(): React.JSX.Element {
   useDirection(lang);
 
   return (
-    <div className="relative flex h-screen flex-col overflow-hidden bg-slate-50 text-zinc-900 select-none dark:bg-[#0c0c0f] dark:text-zinc-100">
-      {/* Dynamic Ambient Background Blobs for Glass Refraction */}
-      <div className="pointer-events-none absolute -top-40 -left-40 h-96 w-96 rounded-full bg-orange-500/10 blur-[100px] dark:bg-orange-500/15" />
-      <div className="pointer-events-none absolute top-1/3 -right-40 h-96 w-96 rounded-full bg-sky-500/10 blur-[110px] dark:bg-sky-500/15" />
-      <div className="pointer-events-none absolute -bottom-40 left-1/4 h-96 w-96 rounded-full bg-purple-500/10 blur-[120px] dark:bg-purple-500/15" />
-
+    <div className="relative flex h-screen flex-col overflow-hidden bg-zinc-100/90 text-zinc-900 select-none dark:bg-[#09090b] dark:text-zinc-100">
       <HeaderBar />
       
       <main className="relative z-10 mx-auto flex w-full max-w-4xl flex-1 flex-col gap-4 overflow-y-auto px-4 py-5 md:gap-5 md:px-6">
@@ -162,7 +157,7 @@ export default function App(): React.JSX.Element {
         <JobsPanel />
       </main>
 
-      <footer className="relative z-20 border-t border-black/5 bg-white/70 backdrop-blur-xl px-4 py-3.5 pb-[calc(0.85rem+env(safe-area-inset-bottom,0px))] shadow-sm dark:border-white/5 dark:bg-zinc-950/70 md:px-6 md:py-4">
+      <footer className="relative z-20 border-t border-black/[0.06] bg-white/95 backdrop-blur-md px-4 py-3.5 pb-[calc(0.85rem+env(safe-area-inset-bottom,0px))] shadow-sm dark:border-white/[0.06] dark:bg-zinc-900/95 md:px-6 md:py-4">
         <div className="mx-auto w-full max-w-4xl">
           <StartBar />
         </div>

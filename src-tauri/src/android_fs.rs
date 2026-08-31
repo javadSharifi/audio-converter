@@ -296,11 +296,20 @@ fn call_static_string(
             .new_string(arg)
             .map_err(|e| format!("Failed to create Java string: {e}"))?;
         let cls = main_activity_class(env)?;
-        let j_obj = env
-            .call_static_method(&cls, method, signature, &[(&j_arg).into()])
-            .map_err(|e| format!("Failed to call {method}: {e}"))?
-            .l()
-            .map_err(|e| format!("Expected object: {e}"))?;
+        let j_val = match env.call_static_method(&cls, method, signature, &[(&j_arg).into()]) {
+            Ok(v) => v,
+            Err(e) => {
+                if env.exception_check().unwrap_or(false) {
+                    let _ = env.exception_describe();
+                    let _ = env.exception_clear();
+                }
+                return Err(format!("Failed to call {method}: {e}"));
+            }
+        };
+        let j_obj = j_val.l().map_err(|e| format!("Expected object: {e}"))?;
+        if j_obj.as_raw().is_null() {
+            return Ok(String::new());
+        }
         let j_str = jni::objects::JString::from(j_obj);
         let s: String = env
             .get_string(&j_str)
@@ -313,12 +322,17 @@ fn call_static_string(
 /// String bridge that never errors — empty string on failure (for stat).
 #[cfg(target_os = "android")]
 pub fn call_static_string_quiet(method: &str, arg: &str) -> String {
-    call_static_string(
+    match call_static_string(
         method,
         "(Ljava/lang/String;)Ljava/lang/String;",
         arg,
-    )
-    .unwrap_or_default()
+    ) {
+        Ok(s) => s,
+        Err(e) => {
+            crate::log_error!("call_static_string_quiet({method}) failed: {e}");
+            String::new()
+        }
+    }
 }
 
 /// Call a `static boolean method()` on MainActivity (fail-open on any error).

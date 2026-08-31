@@ -27,7 +27,7 @@ export function HeaderBar(): React.JSX.Element {
   };
 
   return (
-    <header className="relative z-30 flex items-center justify-between border-b border-black/5 bg-white/60 backdrop-blur-2xl px-4 py-3 pt-[calc(0.75rem+env(safe-area-inset-top,0px))] shadow-sm dark:border-white/5 dark:bg-zinc-950/60 md:px-6">
+    <header className="relative z-30 flex items-center justify-between border-b border-black/[0.06] bg-white/95 backdrop-blur-md px-4 py-3 pt-[calc(0.75rem+env(safe-area-inset-top,0px))] shadow-sm dark:border-white/[0.06] dark:bg-zinc-900/95 md:px-6">
       <div className="flex items-center gap-2.5">
         <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-tr from-orange-500 to-amber-400 text-white shadow-md shadow-orange-500/20">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden>

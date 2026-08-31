@@ -77,6 +77,7 @@ pub async fn stat_media_paths(paths: Vec<String>) -> Vec<StatMediaPath> {
         {
             let joined = paths.join("\n");
             let raw = crate::android_fs::call_static_string_quiet("statUri", &joined);
+            crate::log_info!("stat_media_paths: inputs={:?}, raw={:?}", paths, raw);
             let mut lines = raw.split('\n').filter(|l| !l.is_empty());
             paths
                 .into_iter()
