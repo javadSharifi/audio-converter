@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { UploadCloud, Plus, Loader2 } from "lucide-react";
 import { useAppStore } from "../stores/useAppStore";
 import { translate } from "../i18n";
 import { pickVideos } from "../utils/dialog";
@@ -31,11 +32,7 @@ export function DropZone(): React.JSX.Element {
 
       {/* Prominent Glowing Upload & Audio Icon */}
       <div className={`relative flex h-20 w-20 items-center justify-center rounded-3xl bg-gradient-to-tr from-orange-500 via-amber-400 to-orange-400 text-white shadow-xl shadow-orange-500/30 transition-transform duration-300 group-hover:scale-105 ${probing ? "animate-pulse" : ""}`}>
-        <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-          <polyline points="17 8 12 3 7 8" />
-          <line x1="12" y1="3" x2="12" y2="15" />
-        </svg>
+        <UploadCloud className="h-9 w-9" strokeWidth={2} />
       </div>
 
       <div className="space-y-1.5 z-10">
@@ -51,12 +48,9 @@ export function DropZone(): React.JSX.Element {
       <div className="z-10 mt-1">
         <span className="inline-flex items-center gap-2 rounded-2xl bg-white/80 dark:bg-zinc-800/80 px-5 py-2.5 text-xs font-bold text-orange-600 dark:text-orange-400 shadow-sm border border-black/5 dark:border-white/10 group-hover:bg-orange-500 group-hover:text-white transition-all">
           {probing ? (
-            <svg className="animate-spin h-4 w-4 text-orange-500" viewBox="0 0 24 24" fill="none">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-            </svg>
+            <Loader2 className="h-4 w-4 animate-spin text-orange-500 group-hover:text-white" />
           ) : (
-            <span>＋</span>
+            <Plus className="h-4 w-4 stroke-width-3" />
           )}
           <span>{probing ? translate(lang, "preparingFiles") : translate(lang, "orBrowse")}</span>
         </span>

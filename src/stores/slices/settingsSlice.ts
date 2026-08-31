@@ -30,6 +30,9 @@ export const defaultOptions: ConversionOptions = {
   silenceMinDurationSecs: 2,
   outputMode: "same_as_source",
   customOutputDir: null,
+  boostEnabled: false,
+  boostPreset: "smart",
+  boostManualGainPercent: 100,
 };
 
 export const createSettingsSlice: StateCreator<

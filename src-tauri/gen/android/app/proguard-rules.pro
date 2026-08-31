@@ -15,6 +15,12 @@
     public <methods>;
     *;
 }
+-keep class com.audioconverter.app.LiveSoundBoosterService {
+    *;
+}
+-keep class com.audioconverter.app.LiveSoundBoosterService$Companion {
+    *;
+}
 -keepclasseswithmembers class * {
     native <methods>;
 }

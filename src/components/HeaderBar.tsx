@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { getVersion } from "@tauri-apps/api/app";
+import { Settings as SettingsIcon, X, AudioLines, Sun, Moon, Languages } from "lucide-react";
 import { useAppStore } from "../stores/useAppStore";
 import { translate } from "../i18n";
+import { resolveTheme } from "../hooks/useTheme";
 import type { AppSettings } from "../types";
 
 export function HeaderBar(): React.JSX.Element {
@@ -19,120 +21,187 @@ export function HeaderBar(): React.JSX.Element {
   }, []);
 
   const patch = (p: Partial<AppSettings>) => {
-    // Ignore edits until settings finished loading — saving a partial object
-    // would fail deserialization on the backend.
     if (!settings) return;
     updateSettings(p);
     void persistSettings();
   };
 
+  const toggleTheme = () => {
+    const currentResolved = resolveTheme(theme);
+    const nextTheme = currentResolved === "dark" ? "light" : "dark";
+    patch({ theme: nextTheme });
+  };
+
+  const toggleLang = () => {
+    const nextLang = lang === "fa" ? "en" : "fa";
+    patch({ language: nextLang });
+  };
+
+  const isDark = resolveTheme(theme) === "dark";
+
   return (
     <header className="relative z-30 flex items-center justify-between border-b border-black/[0.06] bg-white/95 backdrop-blur-md px-4 py-3 pt-[calc(0.75rem+env(safe-area-inset-top,0px))] shadow-sm dark:border-white/[0.06] dark:bg-zinc-900/95 md:px-6">
+      {/* Brand & App Title */}
       <div className="flex items-center gap-2.5">
         <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-tr from-orange-500 to-amber-400 text-white shadow-md shadow-orange-500/20">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-            <rect x="3" y="9" width="3" height="6" rx="1.5" />
-            <rect x="8" y="5" width="3" height="14" rx="1.5" />
-            <rect x="13" y="2" width="3" height="20" rx="1.5" />
-            <rect x="18" y="7" width="3" height="10" rx="1.5" />
-          </svg>
+          <AudioLines className="h-5 w-5" strokeWidth={2.4} />
         </div>
-        <div className="flex items-baseline gap-1.5">
-          <h1 className="text-sm font-bold tracking-tight md:text-base">{translate(lang, "appTitle")}</h1>
-          {version && (
-            <span className="rounded-full bg-zinc-200/60 px-1.5 py-0.5 text-[10px] font-semibold text-zinc-600 dark:bg-zinc-800/80 dark:text-zinc-400">
-              v{version}
-            </span>
-          )}
-        </div>
+        <h1 className="text-sm font-bold tracking-tight md:text-base text-zinc-900 dark:text-zinc-100">
+          {translate(lang, "appTitle")}
+        </h1>
       </div>
 
+      {/* Main Header Action: Settings Button */}
       <div className="flex items-center gap-2 text-xs">
-        <div className="flex items-center rounded-xl border border-black/5 bg-black/[0.03] p-0.5 dark:border-white/5 dark:bg-white/[0.04]">
-          <select
-            value={lang}
-            onChange={(e) => patch({ language: e.target.value as "en" | "fa" })}
-            className="cursor-pointer rounded-lg bg-transparent px-2 py-1 font-medium outline-none transition-colors hover:bg-white/60 dark:hover:bg-white/10"
-            aria-label={translate(lang, "language")}
-          >
-            <option value="en" className="dark:bg-zinc-900">EN</option>
-            <option value="fa" className="dark:bg-zinc-900">FA</option>
-          </select>
-
-          <select
-            value={theme}
-            onChange={(e) => patch({ theme: e.target.value as "light" | "dark" | "system" })}
-            className="cursor-pointer rounded-lg bg-transparent px-2 py-1 font-medium outline-none transition-colors hover:bg-white/60 dark:hover:bg-white/10"
-            aria-label={translate(lang, "theme")}
-          >
-            <option value="light" className="dark:bg-zinc-900">☼ {translate(lang, "themeLight")}</option>
-            <option value="dark" className="dark:bg-zinc-900">☾ {translate(lang, "themeDark")}</option>
-            <option value="system" className="dark:bg-zinc-900">◐ {translate(lang, "themeSystem")}</option>
-          </select>
-        </div>
-
         <button
+          type="button"
           onClick={() => setOpen((v) => !v)}
           className="flex h-8 w-8 items-center justify-center rounded-xl border border-black/5 bg-black/[0.03] text-zinc-600 transition-all hover:bg-black/[0.06] active:scale-95 dark:border-white/5 dark:bg-white/[0.04] dark:text-zinc-300 dark:hover:bg-white/[0.08]"
           title={translate(lang, "settingsTitle")}
           aria-label={translate(lang, "settingsTitle")}
         >
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
-            <circle cx="12" cy="12" r="3" />
-          </svg>
+          <SettingsIcon className="h-4 w-4" strokeWidth={2} />
         </button>
       </div>
 
+      {/* Settings Dialog Portal */}
       {open &&
-        // Portal to <body>: the header's backdrop-filter makes it the
-        // containing block for position:fixed children, which would clip
-        // this overlay to the 56px header bar instead of the viewport.
         createPortal(
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4 animate-in fade-in duration-200">
             <div className="glass-panel w-full max-w-md rounded-3xl p-6 shadow-2xl">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-base font-bold">{translate(lang, "settingsTitle")}</h2>
+              {/* Settings Header */}
+              <div className="flex items-center justify-between mb-5 border-b border-black/[0.05] pb-3 dark:border-white/[0.05]">
+                <h2 className="text-base font-bold text-zinc-900 dark:text-zinc-100">
+                  {translate(lang, "settingsTitle")}
+                </h2>
                 <button
+                  type="button"
                   onClick={() => setOpen(false)}
                   className="flex h-7 w-7 items-center justify-center rounded-full text-zinc-400 hover:bg-black/5 hover:text-zinc-700 dark:hover:bg-white/10 dark:hover:text-white"
                 >
-                  ✕
+                  <X className="h-4 w-4" />
                 </button>
               </div>
 
-              <div className="space-y-4 text-sm">
-                <label className="flex items-center justify-between">
-                  <span className="font-medium">{translate(lang, "concurrency")}</span>
+              {/* Settings Options List */}
+              <div className="space-y-3.5 text-sm">
+                {/* Language Setting Row */}
+                <div className="flex items-center justify-between rounded-2xl bg-black/[0.03] p-3 dark:bg-white/[0.03]">
+                  <div className="flex items-center gap-2.5">
+                    <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-orange-500/10 text-orange-600 dark:bg-orange-500/20 dark:text-orange-400">
+                      <Languages className="h-4 w-4" />
+                    </div>
+                    <div>
+                      <span className="block font-semibold text-zinc-800 dark:text-zinc-200">
+                        {translate(lang, "language")}
+                      </span>
+                      <span className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                        {lang === "fa" ? "فارسی (Persian)" : "English"}
+                      </span>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={toggleLang}
+                    className="flex items-center gap-1.5 rounded-xl border border-black/5 bg-white px-3 py-1.5 text-xs font-bold text-zinc-700 shadow-sm transition-all hover:bg-zinc-50 active:scale-95 dark:border-white/5 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700"
+                  >
+                    <span className="text-[11px] font-extrabold text-orange-500 uppercase">
+                      {lang === "fa" ? "EN" : "FA"}
+                    </span>
+                    <span>{lang === "fa" ? "English" : "فارسی"}</span>
+                  </button>
+                </div>
+
+                {/* Theme Mode Setting Row */}
+                <div className="flex items-center justify-between rounded-2xl bg-black/[0.03] p-3 dark:bg-white/[0.03]">
+                  <div className="flex items-center gap-2.5">
+                    <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-orange-500/10 text-orange-600 dark:bg-orange-500/20 dark:text-orange-400">
+                      {isDark ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
+                    </div>
+                    <div>
+                      <span className="block font-semibold text-zinc-800 dark:text-zinc-200">
+                        {translate(lang, "theme")}
+                      </span>
+                      <span className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                        {isDark ? translate(lang, "themeDark") : translate(lang, "themeLight")}
+                      </span>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={toggleTheme}
+                    className="flex items-center gap-1.5 rounded-xl border border-black/5 bg-white px-3 py-1.5 text-xs font-bold text-zinc-700 shadow-sm transition-all hover:bg-zinc-50 active:scale-95 dark:border-white/5 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700"
+                  >
+                    {isDark ? (
+                      <>
+                        <Sun className="h-3.5 w-3.5 text-amber-400" />
+                        <span>{translate(lang, "themeLight")}</span>
+                      </>
+                    ) : (
+                      <>
+                        <Moon className="h-3.5 w-3.5 text-zinc-600" />
+                        <span>{translate(lang, "themeDark")}</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                {/* Concurrency Setting */}
+                <label className="flex items-center justify-between rounded-2xl bg-black/[0.03] p-3 dark:bg-white/[0.03]">
+                  <span className="font-semibold text-zinc-800 dark:text-zinc-200">
+                    {translate(lang, "concurrency")}
+                  </span>
                   <input
                     type="number"
                     min={1}
                     max={32}
                     value={settings?.concurrency ?? 1}
-                    onChange={(e) => updateSettings({ concurrency: Math.max(1, Math.min(32, Number(e.target.value) || 1)) })}
-                    className="w-20 rounded-xl border border-black/10 bg-white/50 px-3 py-1.5 text-center font-semibold outline-none dark:border-white/10 dark:bg-black/30"
+                    onChange={(e) =>
+                      updateSettings({
+                        concurrency: Math.max(1, Math.min(32, Number(e.target.value) || 1)),
+                      })
+                    }
+                    className="w-20 rounded-xl border border-black/10 bg-white/70 px-3 py-1.5 text-center font-bold outline-none dark:border-white/10 dark:bg-black/30"
                   />
                 </label>
 
-                <label className="flex items-center justify-between">
-                  <span className="font-medium">{translate(lang, "autoOpenOutput")}</span>
+                {/* Auto Open Output Folder Setting */}
+                <label className="flex items-center justify-between rounded-2xl bg-black/[0.03] p-3 dark:bg-white/[0.03]">
+                  <span className="font-semibold text-zinc-800 dark:text-zinc-200">
+                    {translate(lang, "autoOpenOutput")}
+                  </span>
                   <input
                     type="checkbox"
                     checked={settings?.autoOpenOutputFolder ?? false}
-                    onChange={(e) => updateSettings({ autoOpenOutputFolder: e.target.checked })}
+                    onChange={(e) =>
+                      updateSettings({ autoOpenOutputFolder: e.target.checked })
+                    }
                     className="h-5 w-5 rounded-md accent-orange-500 cursor-pointer"
                   />
                 </label>
+
+                {/* App Version Info inside Settings */}
+                {version && (
+                  <div className="flex items-center justify-between px-2 pt-1 text-xs text-zinc-400 dark:text-zinc-500">
+                    <span>{translate(lang, "appTitle")}</span>
+                    <span className="font-mono font-semibold">v{version}</span>
+                  </div>
+                )}
               </div>
 
+              {/* Modal Actions */}
               <div className="mt-6 flex justify-end gap-2.5">
                 <button
+                  type="button"
                   onClick={() => setOpen(false)}
                   className="rounded-xl px-4 py-2 text-xs font-semibold text-zinc-600 hover:bg-black/5 dark:text-zinc-400 dark:hover:bg-white/10"
                 >
-                  ✕
+                  {translate(lang, "cancel")}
                 </button>
                 <button
+                  type="button"
                   onClick={() => {
                     void persistSettings();
                     setOpen(false);

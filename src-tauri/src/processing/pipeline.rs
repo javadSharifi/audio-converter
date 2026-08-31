@@ -130,15 +130,49 @@ pub fn build_conversion_args(
         codec_args.extend(["-ac".to_string(), ch.to_string()]);
     }
 
+    let is_boosted = trim
+        .and_then(|t| t.boost_enabled)
+        .unwrap_or(options.boost_enabled);
+    let preset = trim
+        .and_then(|t| t.boost_preset)
+        .or(options.boost_preset);
+    let manual_gain = trim
+        .and_then(|t| t.boost_manual_gain_percent)
+        .or(options.boost_manual_gain_percent);
+
+    let boost_filter = if is_boosted {
+        preset.map(|p| {
+            crate::processing::sound_booster::presets::build_preset_filter_chain(
+                p,
+                manual_gain,
+                None,
+            )
+        })
+    } else {
+        None
+    };
+
     if !use_filters {
-        // Straight transcode: extract main audio track, encode once.
-        args.extend([
-            "-map".to_string(),
-            "0:a:0".to_string(),
-            "-vn".to_string(),
-            "-map_metadata".to_string(),
-            "0".to_string(),
-        ]);
+        if let Some(ref bf) = boost_filter {
+            args.extend([
+                "-filter_complex".to_string(),
+                format!("[0:a:0]{bf}[a0]"),
+                "-map".to_string(),
+                "[a0]".to_string(),
+                "-vn".to_string(),
+                "-map_metadata".to_string(),
+                "0".to_string(),
+            ]);
+        } else {
+            // Straight transcode: extract main audio track, encode once.
+            args.extend([
+                "-map".to_string(),
+                "0:a:0".to_string(),
+                "-vn".to_string(),
+                "-map_metadata".to_string(),
+                "0".to_string(),
+            ]);
+        }
         args.extend(codec_args);
         args.push(outputs[0].to_string_lossy().into_owned());
         return args;
@@ -155,7 +189,11 @@ pub fn build_conversion_args(
             ));
             labels.push_str(&format!("[{label}]"));
         }
-        chains.push(format!("{labels}concat=n={}:v=0:a=1[a{pi}];", segs.len()));
+        if let Some(ref bf) = boost_filter {
+            chains.push(format!("{labels}concat=n={}:v=0:a=1,{bf}[a{pi}];", segs.len()));
+        } else {
+            chains.push(format!("{labels}concat=n={}:v=0:a=1[a{pi}];", segs.len()));
+        }
     }
 
     args.push("-filter_complex".into());
@@ -602,11 +640,7 @@ mod tests {
     #[test]
     fn trim_flag_ordering_and_rebased_to() {
         let opts = ConversionOptions::default();
-        let trim = TrimSpec {
-            path: "/in.mp4".into(),
-            start_time_secs: Some(10.0),
-            end_time_secs: Some(30.0),
-        };
+        let trim = TrimSpec::new("/in.mp4", Some(10.0), Some(30.0));
         let args = build_conversion_args(
             Path::new("/in.mp4"),
             &opts,
@@ -634,11 +668,7 @@ mod tests {
     #[test]
     fn end_only_trim_uses_absolute_to() {
         let opts = ConversionOptions::default();
-        let trim = TrimSpec {
-            path: "/in.mp4".into(),
-            start_time_secs: None,
-            end_time_secs: Some(12.5),
-        };
+        let trim = TrimSpec::new("/in.mp4", None, Some(12.5));
         let args = build_conversion_args(
             Path::new("/in.mp4"),
             &opts,
@@ -662,11 +692,7 @@ mod tests {
             format: AudioFormat::Flac,
             ..Default::default()
         };
-        let trim = TrimSpec {
-            path: "/in.mp4".into(),
-            start_time_secs: Some(45.0),
-            end_time_secs: None,
-        };
+        let trim = TrimSpec::new("/in.mp4", Some(45.0), None);
         let args = build_conversion_args(
             Path::new("/in.mp4"),
             &opts,
@@ -683,29 +709,13 @@ mod tests {
 
     #[test]
     fn trim_spec_validation() {
-        let ok = TrimSpec {
-            path: "x".into(),
-            start_time_secs: Some(10.0),
-            end_time_secs: Some(20.0),
-        };
+        let ok = TrimSpec::new("x", Some(10.0), Some(20.0));
         assert!(ok.validate().is_ok());
-        let inverted = TrimSpec {
-            path: "x".into(),
-            start_time_secs: Some(25.0),
-            end_time_secs: Some(20.0),
-        };
+        let inverted = TrimSpec::new("x", Some(25.0), Some(20.0));
         assert!(inverted.validate().is_err());
-        let negative_start = TrimSpec {
-            path: "x".into(),
-            start_time_secs: Some(-1.0),
-            end_time_secs: None,
-        };
+        let negative_start = TrimSpec::new("x", Some(-1.0), None);
         assert!(negative_start.validate().is_err());
-        let zero_end = TrimSpec {
-            path: "x".into(),
-            start_time_secs: None,
-            end_time_secs: Some(0.0),
-        };
+        let zero_end = TrimSpec::new("x", None, Some(0.0));
         assert!(zero_end.validate().is_err());
     }
 
@@ -748,30 +758,14 @@ mod tests {
 
     #[test]
     fn trim_effective_to_rebasing_matrix() {
-        let both = TrimSpec {
-            path: "x".into(),
-            start_time_secs: Some(10.0),
-            end_time_secs: Some(30.0),
-        };
+        let both = TrimSpec::new("x", Some(10.0), Some(30.0));
         assert!((both.effective_to().unwrap() - 20.0).abs() < 1e-9);
-        let end_only = TrimSpec {
-            path: "x".into(),
-            start_time_secs: None,
-            end_time_secs: Some(30.0),
-        };
+        let end_only = TrimSpec::new("x", None, Some(30.0));
         assert!((end_only.effective_to().unwrap() - 30.0).abs() < 1e-9);
         // Start-only / nothing → no -to flag at all.
-        let start_only = TrimSpec {
-            path: "x".into(),
-            start_time_secs: Some(5.0),
-            end_time_secs: None,
-        };
+        let start_only = TrimSpec::new("x", Some(5.0), None);
         assert!(start_only.effective_to().is_none());
-        let none = TrimSpec {
-            path: "x".into(),
-            start_time_secs: None,
-            end_time_secs: None,
-        };
+        let none = TrimSpec::new("x", None, None);
         assert!(none.effective_to().is_none());
     }
 }

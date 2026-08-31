@@ -82,6 +82,14 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         commands::get_settings,
         commands::save_settings,
         commands::log_frontend,
+        commands::analyze_audio_volume,
+        commands::generate_ab_preview,
+        commands::start_sound_boost,
+        commands::start_live_boost,
+        commands::stop_live_boost,
+        commands::set_live_boost_gain,
+        commands::get_live_boost_status,
+        commands::is_live_boost_supported,
     ])
 }
 

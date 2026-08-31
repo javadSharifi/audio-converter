@@ -1,6 +1,8 @@
 package com.audioconverter.app
 
 import android.Manifest
+import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
@@ -73,10 +75,63 @@ class MainActivity : TauriActivity() {
 
       // Check and request media permissions if needed
       checkAndRequestMediaPermissions()
+
+      // Handle incoming share sheet audio/video
+      handleIncomingShareIntent(intent)
     } catch (e: Throwable) {
       Log.e(TAG, "Failed to initialize MainActivity", e)
     }
     super.onCreate(savedInstanceState)
+  }
+
+  override fun onNewIntent(intent: Intent) {
+    super.onNewIntent(intent)
+    setIntent(intent)
+    handleIncomingShareIntent(intent)
+  }
+
+  @Deprecated("Deprecated in Java")
+  override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+    super.onActivityResult(requestCode, resultCode, data)
+    if (requestCode == MEDIA_PROJECTION_REQ_CODE) {
+      if (resultCode == android.app.Activity.RESULT_OK && data != null) {
+        val serviceIntent = Intent(this, LiveSoundBoosterService::class.java).apply {
+          action = LiveSoundBoosterService.ACTION_START
+          putExtra(LiveSoundBoosterService.EXTRA_RESULT_CODE, resultCode)
+          putExtra(LiveSoundBoosterService.EXTRA_DATA_INTENT, data)
+          putExtra(LiveSoundBoosterService.EXTRA_GAIN, pendingLiveBoostGain)
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+          startForegroundService(serviceIntent)
+        } else {
+          startService(serviceIntent)
+        }
+        Log.i(TAG, "MediaProjection permission granted -> LiveSoundBoosterService started")
+      } else {
+        Log.w(TAG, "MediaProjection permission cancelled by user")
+        notifyLiveBoostState(false)
+      }
+    }
+  }
+
+  private fun handleIncomingShareIntent(intent: Intent?) {
+    if (intent == null) return
+    val action = intent.action
+    val type = intent.type
+    if (Intent.ACTION_SEND == action && type != null) {
+      val uri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+      } else {
+        @Suppress("DEPRECATION")
+        intent.getParcelableExtra(Intent.EXTRA_STREAM)
+      } ?: intent.data
+
+      if (uri != null) {
+        val uriStr = uri.toString()
+        lastSharedUri = uriStr
+        Log.i(TAG, "Received shared audio stream: $uriStr")
+      }
+    }
   }
 
   override fun onResume() {
@@ -147,8 +202,15 @@ class MainActivity : TauriActivity() {
   companion object {
     private const val TAG = "AudioConverter"
     private const val PERMISSION_REQ_CODE = 1001
+    private const val MEDIA_PROJECTION_REQ_CODE = 2002
     private const val BUFFER_SIZE = 64 * 1024 // 64 KB buffer for fast stream transfers
     private const val SAFETY_MARGIN_BYTES = 50L * 1024 * 1024 // 50 MB safety margin
+
+    @Volatile
+    var pendingLiveBoostGain: Float = 1.5f
+
+    @Volatile
+    var lastSharedUri: String? = null
 
     init {
       try {
@@ -220,6 +282,88 @@ class MainActivity : TauriActivity() {
       } catch (t: Throwable) {
         Log.w(TAG, "openAppSettings failed", t)
       }
+    }
+
+    @JvmStatic
+    fun startLiveBoost(gain: Float) {
+      val act = instance ?: return
+      if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+        Log.w(TAG, "AudioPlaybackCapture is not supported on Android < 10")
+        return
+      }
+      pendingLiveBoostGain = gain
+      try {
+        val mgr = act.getSystemService(android.content.Context.MEDIA_PROJECTION_SERVICE) as android.media.projection.MediaProjectionManager
+        act.startActivityForResult(mgr.createScreenCaptureIntent(), MEDIA_PROJECTION_REQ_CODE)
+      } catch (t: Throwable) {
+        Log.e(TAG, "Failed to start MediaProjection consent intent", t)
+      }
+    }
+
+    @JvmStatic
+    fun stopLiveBoost() {
+      val ctx = appContext ?: instance?.applicationContext ?: return
+      try {
+        val intent = android.content.Intent(ctx, LiveSoundBoosterService::class.java).apply {
+          action = LiveSoundBoosterService.ACTION_STOP
+        }
+        ctx.startService(intent)
+      } catch (t: Throwable) {
+        Log.w(TAG, "Failed to stop LiveSoundBoosterService", t)
+      }
+    }
+
+    @JvmStatic
+    fun setLiveBoostGain(gain: Float) {
+      val ctx = appContext ?: instance?.applicationContext ?: return
+      pendingLiveBoostGain = gain
+      try {
+        val intent = android.content.Intent(ctx, LiveSoundBoosterService::class.java).apply {
+          action = LiveSoundBoosterService.ACTION_UPDATE_GAIN
+          putExtra(LiveSoundBoosterService.EXTRA_GAIN, gain)
+        }
+        ctx.startService(intent)
+      } catch (t: Throwable) {
+        Log.w(TAG, "Failed to update LiveSoundBoosterService gain", t)
+      }
+    }
+
+    private fun findWebView(view: android.view.View?): android.webkit.WebView? {
+      if (view == null) return null
+      if (view is android.webkit.WebView) return view
+      if (view is android.view.ViewGroup) {
+        for (i in 0 until view.childCount) {
+          val found = findWebView(view.getChildAt(i))
+          if (found != null) return found
+        }
+      }
+      return null
+    }
+
+    @JvmStatic
+    fun notifyLiveBoostState(running: Boolean) {
+      val act = instance ?: return
+      act.runOnUiThread {
+        try {
+          val webView = findWebView(act.window.decorView)
+          webView?.evaluateJavascript(
+            "window.dispatchEvent(new CustomEvent('ac:live-boost-state', { detail: { isRunning: $running } }));",
+            null
+          )
+        } catch (t: Throwable) {
+          Log.w(TAG, "Failed to notify webview of live boost state", t)
+        }
+      }
+    }
+
+    @JvmStatic
+    fun isLiveBoostRunning(): Boolean {
+      return LiveSoundBoosterService.isServiceRunning
+    }
+
+    @JvmStatic
+    fun isLiveBoostSupported(): Boolean {
+      return Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
     }
 
     /**

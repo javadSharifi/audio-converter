@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { X, Check, FileAudio } from "lucide-react";
 import { useAppStore, statusLabelKey } from "../stores/useAppStore";
 import { translate } from "../i18n";
 import type { QueueItem } from "../types";
@@ -18,8 +19,6 @@ function JobRow({ job }: { job: QueueItem }): React.JSX.Element {
   const cancelJob = useAppStore((s) => s.cancelJob);
   const files = useAppStore((s) => s.files);
   const [showTech, setShowTech] = useState(false);
-  // Android rows carry content URIs — prefer the friendly name from the file
-  // list (keyed by the same URI) over the raw URI's last segment.
   const name =
     files.find((f) => f.path === job.sourcePath)?.name ??
     job.sourcePath.split(/[\\/]/).pop() ??
@@ -46,7 +45,7 @@ function JobRow({ job }: { job: QueueItem }): React.JSX.Element {
             className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg text-zinc-400 hover:bg-red-500/10 hover:text-red-500"
             title="Cancel"
           >
-            ✕
+            <X className="h-3.5 w-3.5" />
           </button>
         )}
       </div>
@@ -64,7 +63,7 @@ function JobRow({ job }: { job: QueueItem }): React.JSX.Element {
       {job.status === "completed" && job.outputs && job.outputs.length > 0 && (
         <div className="mt-2 flex flex-col gap-1 rounded-xl bg-emerald-500/5 p-2 border border-emerald-500/10 dark:bg-emerald-500/10">
           <div className="flex items-center gap-1.5 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">
-            <span>✓</span>
+            <Check className="h-3.5 w-3.5" strokeWidth={2.5} />
             <span>{lang === "fa" ? "فایل‌های خروجی تولیدشده:" : "Output files created:"}</span>
           </div>
           <div className="flex flex-col gap-1">
@@ -73,10 +72,11 @@ function JobRow({ job }: { job: QueueItem }): React.JSX.Element {
               return (
                 <span
                   key={idx}
-                  className="font-mono text-[10px] text-zinc-700 dark:text-zinc-300 truncate"
+                  className="flex items-center gap-1.5 font-mono text-[10px] text-zinc-700 dark:text-zinc-300 truncate"
                   title={outPath}
                 >
-                  📄 {outName}
+                  <FileAudio className="h-3 w-3 shrink-0 text-zinc-400" />
+                  <span className="truncate">{outName}</span>
                 </span>
               );
             })}
@@ -115,8 +115,6 @@ export function JobsPanel(): React.JSX.Element | null {
   const clearFinishedJobs = useAppStore((s) => s.clearFinishedJobs);
   const lang = useAppStore((s) => s.lang);
 
-  // Numeric-aware: "job-…-10" must sort after "job-…-2". Ids are monotonic
-  // per enqueue, so this keeps rows in stable submission order — no jumping.
   const collator = useMemo(
     () => new Intl.Collator(undefined, { numeric: true }),
     [],

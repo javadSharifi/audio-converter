@@ -5,6 +5,7 @@ import { translate } from "../i18n";
 import { formatTimecode, parseTimeInput } from "../utils/format";
 import { isAndroid } from "../utils/platform";
 import * as api from "../utils/tauri";
+import { Play, Pause, ArrowRight, RotateCcw } from "lucide-react";
 import type { InputFile } from "../types";
 
 /**
@@ -525,7 +526,11 @@ export function TrimEditor({ file }: { file: InputFile }): React.JSX.Element | n
             aria-label={translate(lang, "trimPlay")}
             title={srcUrl ? undefined : translate(lang, "trimPreviewUnavailable")}
           >
-            <span>{playing ? "⏸" : "▶"}</span>
+            {playing ? (
+              <Pause className="h-3.5 w-3.5 fill-current" strokeWidth={0} />
+            ) : (
+              <Play className="h-3.5 w-3.5 fill-current" strokeWidth={0} />
+            )}
             <span>{translate(lang, "trimPlay")}</span>
           </button>
 
@@ -537,7 +542,7 @@ export function TrimEditor({ file }: { file: InputFile }): React.JSX.Element | n
                 className="glass-card rounded-xl px-2.5 py-1.5 text-xs font-semibold text-zinc-700 hover:border-orange-400 hover:text-orange-600 dark:text-zinc-300 transition-all active:scale-95 flex items-center gap-1"
                 title={lang === "fa" ? "پیش‌نمایش ۱۰ ثانیه اول بازه انتخاب‌شده" : "Preview first 10s of selection"}
               >
-                <span>▶</span>
+                <Play className="h-3 w-3 fill-current" strokeWidth={0} />
                 <span>{translate(lang, "trimCutFirst10")}</span>
               </button>
               <button
@@ -546,7 +551,7 @@ export function TrimEditor({ file }: { file: InputFile }): React.JSX.Element | n
                 className="glass-card rounded-xl px-2.5 py-1.5 text-xs font-semibold text-zinc-700 hover:border-orange-400 hover:text-orange-600 dark:text-zinc-300 transition-all active:scale-95 flex items-center gap-1"
                 title={lang === "fa" ? "پیش‌نمایش ۱۰ ثانیه آخر بازه انتخاب‌شده" : "Preview last 10s of selection"}
               >
-                <span>▶</span>
+                <Play className="h-3 w-3 fill-current" strokeWidth={0} />
                 <span>{translate(lang, "trimCutLast10")}</span>
               </button>
             </>
@@ -556,9 +561,10 @@ export function TrimEditor({ file }: { file: InputFile }): React.JSX.Element | n
             <button
               onClick={clearTrim}
               data-testid={`trim-clear-${file.name}`}
-              className="rounded-xl bg-red-500/10 px-2.5 py-1.5 text-xs font-semibold text-red-500 hover:bg-red-500/20 active:scale-95 transition-all"
+              className="flex items-center gap-1 rounded-xl bg-red-500/10 px-2.5 py-1.5 text-xs font-semibold text-red-500 hover:bg-red-500/20 active:scale-95 transition-all"
             >
-              {translate(lang, "trimClear")}
+              <RotateCcw className="h-3 w-3" strokeWidth={2.2} />
+              <span>{translate(lang, "trimClear")}</span>
             </button>
           )}
         </div>
@@ -614,7 +620,7 @@ export function TrimEditor({ file }: { file: InputFile }): React.JSX.Element | n
             />
           </label>
 
-          <span className="text-zinc-400">→</span>
+          <ArrowRight className="h-3.5 w-3.5 text-zinc-400" />
 
           <label className="flex items-center gap-1.5">
             <span className="font-semibold text-zinc-500 dark:text-zinc-400">{translate(lang, "trimEnd")}</span>

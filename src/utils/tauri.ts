@@ -138,3 +138,76 @@ export async function diskFree(path: string): Promise<number> {
   }
   return res.data.free_bytes;
 }
+
+export async function analyzeAudioVolume(
+  path: string,
+  startSecs: number | null = null,
+  durationSecs: number | null = null,
+): Promise<import("../types").VolumeAnalysis> {
+  const res = await commands.analyzeAudioVolume(path, startSecs, durationSecs);
+  if (res.status === "error") {
+    throw new Error(formatAppError(res.error));
+  }
+  return res.data;
+}
+
+export async function generateAbPreview(
+  path: string,
+  preset: import("../types").BoosterPreset,
+  manualGainPercent: number | null = null,
+  startTimeSecs: number | null = null,
+  durationSecs: number | null = null,
+): Promise<import("../types").AbPreviewResult> {
+  const res = await commands.generateAbPreview(
+    path,
+    preset,
+    manualGainPercent,
+    startTimeSecs,
+    durationSecs,
+  );
+  if (res.status === "error") {
+    throw new Error(formatAppError(res.error));
+  }
+  return res.data;
+}
+
+export async function startSoundBoost(
+  items: import("../types").BoosterJobSpec[],
+  options: ConversionOptions,
+  concurrency?: number,
+): Promise<string[]> {
+  const res = await commands.startSoundBoost(items, options, concurrency ?? null);
+  if (res.status === "error") {
+    throw new Error(formatAppError(res.error));
+  }
+  return res.data;
+}
+
+export async function startLiveBoost(gain = 1.5): Promise<void> {
+  const res = await commands.startLiveBoost(gain);
+  if (res.status === "error") {
+    throw new Error(formatAppError(res.error));
+  }
+}
+
+export async function stopLiveBoost(): Promise<void> {
+  const res = await commands.stopLiveBoost();
+  if (res.status === "error") {
+    throw new Error(formatAppError(res.error));
+  }
+}
+
+export async function setLiveBoostGain(gain: number): Promise<void> {
+  const res = await commands.setLiveBoostGain(gain);
+  if (res.status === "error") {
+    throw new Error(formatAppError(res.error));
+  }
+}
+
+export async function getLiveBoostStatus(): Promise<import("../types").LiveBoostStatus> {
+  return commands.getLiveBoostStatus();
+}
+
+export async function isLiveBoostSupported(): Promise<boolean> {
+  return commands.isLiveBoostSupported();
+}

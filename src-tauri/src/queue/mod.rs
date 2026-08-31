@@ -9,7 +9,7 @@ use crate::error::AppError;
 use crate::ffmpeg::run::CancelToken;
 use crate::processing::naming;
 use crate::processing::pipeline::{self, Emitter};
-use crate::types::{ConversionOptions, JobEvent, JobStatus, TrimSpec};
+use crate::types::{BoosterJobSpec, BoosterPreset, ConversionOptions, JobEvent, JobStatus, TrimSpec};
 
 /// Snapshot of one job, serialized to the frontend.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
@@ -26,6 +26,15 @@ pub struct JobRecord {
     pub outputs: Vec<String>,
 }
 
+#[derive(Debug, Clone)]
+enum JobKind {
+    Convert,
+    Boost {
+        preset: BoosterPreset,
+        manual_gain_percent: Option<f64>,
+    },
+}
+
 /// One unit of pending work. Carries its OWN options snapshot so that a
 /// worker spawned for a previous batch can never process a newer item with
 /// stale settings (the old-worker race).
@@ -35,6 +44,7 @@ struct QueuedJob {
     trim: Option<TrimSpec>,
     multiple_sources: bool,
     options: ConversionOptions,
+    kind: JobKind,
 }
 
 struct QueueInner {
@@ -146,6 +156,7 @@ impl QueueManager {
                     trim,
                     multiple_sources: is_multi,
                     options: options.clone(),
+                    kind: JobKind::Convert,
                 });
                 ids.push(id);
             }
@@ -153,6 +164,88 @@ impl QueueManager {
 
         // Announce every queued job immediately so the UI list shows the
         // whole batch from the start, not only files once a worker picks them.
+        for rec in &fresh_records {
+            self.inner.emit_event_for(rec);
+        }
+
+        let worker_count = concurrency.clamp(1, 32).min((ids.len().max(1)) as u32) as usize;
+        for _ in 0..worker_count {
+            let inner = Arc::clone(&self.inner);
+            std::thread::spawn(move || worker_loop(inner));
+        }
+        ids
+    }
+
+    /// Enqueue sound booster jobs.
+    pub fn enqueue_boost(
+        &self,
+        items: Vec<BoosterJobSpec>,
+        options: ConversionOptions,
+        concurrency: u32,
+    ) -> Vec<String> {
+        self.cancel_all();
+        crate::processing::naming::clear_reserved_paths();
+
+        let is_multi = items.len() > 1;
+
+        let mut sweep_dirs: Vec<PathBuf> = items
+            .iter()
+            .map(|item| {
+                naming::output_directory(Path::new(&item.trim.path), &options, is_multi)
+            })
+            .collect();
+        sweep_dirs.sort();
+        sweep_dirs.dedup();
+        naming::sweep_orphan_temps(&sweep_dirs);
+
+        let mut ids = Vec::with_capacity(items.len());
+        let mut fresh_records = Vec::with_capacity(items.len());
+        {
+            let mut jobs = self.inner.jobs.lock().unwrap();
+            let mut order = self.inner.order.lock().unwrap();
+            let mut tokens = self.inner.tokens.lock().unwrap();
+
+            jobs.clear();
+            order.clear();
+            tokens.clear();
+
+            for item in items {
+                let id = new_job_id();
+                let source = PathBuf::from(&item.trim.path);
+                let trim = if item.trim.start_time_secs.is_some() || item.trim.end_time_secs.is_some() {
+                    Some(item.trim.clone())
+                } else {
+                    None
+                };
+                let rec = JobRecord {
+                    id: id.clone(),
+                    source_path: source.to_string_lossy().into_owned(),
+                    status: JobStatus::Waiting,
+                    percent: None,
+                    speed: None,
+                    error: None,
+                    technical: None,
+                    warning: None,
+                    outputs: vec![],
+                };
+                jobs.insert(id.clone(), rec.clone());
+                tokens.insert(id.clone(), CancelToken::new());
+                fresh_records.push(rec);
+                order.push_back(QueuedJob {
+                    id: id.clone(),
+                    source,
+                    trim,
+                    multiple_sources: is_multi,
+                    options: options.clone(),
+                    kind: JobKind::Boost {
+                        preset: item.preset,
+                        manual_gain_percent: item.manual_gain_percent,
+                    },
+                });
+                ids.push(id);
+            }
+        }
+
         for rec in &fresh_records {
             self.inner.emit_event_for(rec);
         }
@@ -299,6 +392,7 @@ fn worker_loop(inner: Arc<QueueInner>) {
             trim,
             multiple_sources,
             options,
+            kind,
         } = job;
 
         // Per-job token: cancel(job_id) kills only this file.
@@ -387,17 +481,35 @@ fn worker_loop(inner: Arc<QueueInner>) {
             })
         };
 
-        let result = pipeline::run_job(
-            &job_id,
-            &job_source,
-            &options,
-            trim.as_ref(),
-            multiple_sources,
-            &ffmpeg,
-            &ffprobe,
-            token.clone(),
-            &emitter,
-        );
+        let result = match kind {
+            JobKind::Convert => pipeline::run_job(
+                &job_id,
+                &job_source,
+                &options,
+                trim.as_ref(),
+                multiple_sources,
+                &ffmpeg,
+                &ffprobe,
+                token.clone(),
+                &emitter,
+            ),
+            JobKind::Boost {
+                preset,
+                manual_gain_percent,
+            } => crate::processing::sound_booster::run_boost_job(
+                &job_id,
+                &job_source,
+                preset,
+                manual_gain_percent,
+                &options,
+                trim.as_ref(),
+                multiple_sources,
+                &ffmpeg,
+                &ffprobe,
+                token.clone(),
+                &emitter,
+            ),
+        };
 
         match result {
             Ok(outcome) => {

@@ -85,9 +85,26 @@ pub struct TrimSpec {
     pub start_time_secs: Option<f64>,
     /// Stop position; inserted AFTER `-i` as `-to` when present.
     pub end_time_secs: Option<f64>,
+    #[serde(default)]
+    pub boost_enabled: Option<bool>,
+    #[serde(default)]
+    pub boost_preset: Option<BoosterPreset>,
+    #[serde(default)]
+    pub boost_manual_gain_percent: Option<f64>,
 }
 
 impl TrimSpec {
+    pub fn new(path: impl Into<String>, start: Option<f64>, end: Option<f64>) -> Self {
+        Self {
+            path: path.into(),
+            start_time_secs: start,
+            end_time_secs: end,
+            boost_enabled: None,
+            boost_preset: None,
+            boost_manual_gain_percent: None,
+        }
+    }
+
     pub fn validate(&self) -> Result<()> {
         if let Some(s) = self.start_time_secs {
             if !(s.is_finite() && s >= 0.0) {
@@ -148,6 +165,12 @@ pub struct ConversionOptions {
     pub output_mode: OutputMode,
     /// Required when output_mode == CustomFolder.
     pub custom_output_dir: Option<String>,
+    #[serde(default)]
+    pub boost_enabled: bool,
+    #[serde(default)]
+    pub boost_preset: Option<BoosterPreset>,
+    #[serde(default)]
+    pub boost_manual_gain_percent: Option<f64>,
 }
 
 impl Default for ConversionOptions {
@@ -165,6 +188,9 @@ impl Default for ConversionOptions {
             silence_min_duration_secs: 2.0,
             output_mode: OutputMode::SameAsSource,
             custom_output_dir: None,
+            boost_enabled: false,
+            boost_preset: None,
+            boost_manual_gain_percent: None,
         }
     }
 }
@@ -236,6 +262,26 @@ pub struct FileMeta {
     pub format_name: String,
     pub has_audio: bool,
     pub error: Option<String>,
+}
+
+pub use crate::processing::sound_booster::analyze::VolumeAnalysis;
+pub use crate::processing::sound_booster::presets::BoosterPreset;
+pub use crate::processing::sound_booster::preview::AbPreviewResult;
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct BoosterJobSpec {
+    pub trim: TrimSpec,
+    pub preset: BoosterPreset,
+    pub manual_gain_percent: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct LiveBoostStatus {
+    pub is_running: bool,
+    pub current_gain: f64,
+    pub is_supported: bool,
 }
 
 /// Emitted to frontend on every job state change.

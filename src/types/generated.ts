@@ -59,15 +59,62 @@ export const commands = {
 	getSettings: () => __TAURI_INVOKE<Settings>("get_settings"),
 	saveSettings: (settings: Settings) => typedError<null, AppError>(__TAURI_INVOKE("save_settings", { settings })),
 	logFrontend: (level: string, msg: string) => __TAURI_INVOKE<void>("log_frontend", { level, msg }),
+	/**  Volume analysis for a media file (peak dB, mean dB, suggested gain). */
+	analyzeAudioVolume: (path: string, startSecs: number | null, durationSecs: number | null) => typedError<VolumeAnalysis, AppError>(__TAURI_INVOKE("analyze_audio_volume", { path, startSecs, durationSecs })),
+	/**  Fast A/B preview snippet generator for Sound Booster. */
+	generateAbPreview: (path: string, preset: BoosterPreset, manualGainPercent: number | null, startTimeSecs: number | null, durationSecs: number | null) => typedError<AbPreviewResult, AppError>(__TAURI_INVOKE("generate_ab_preview", { path, preset, manualGainPercent, startTimeSecs, durationSecs })),
+	/**  Enqueue sound booster batch conversion. */
+	startSoundBoost: (items: BoosterJobSpec[], options: ConversionOptions, concurrency: number | null) => typedError<string[], AppError>(__TAURI_INVOKE("start_sound_boost", { items, options, concurrency })),
+	/**  Start Live System Boost (Android API 29+ only, no-op on desktop). */
+	startLiveBoost: (gain: number | null) => typedError<null, AppError>(__TAURI_INVOKE("start_live_boost", { gain })),
+	/**  Stop Live System Boost. */
+	stopLiveBoost: () => typedError<null, AppError>(__TAURI_INVOKE("stop_live_boost")),
+	/**  Dynamically update gain of Live System Boost. */
+	setLiveBoostGain: (gain: number | null) => typedError<null, AppError>(__TAURI_INVOKE("set_live_boost_gain", { gain })),
+	/**  Check status of Live System Boost. */
+	getLiveBoostStatus: () => __TAURI_INVOKE<LiveBoostStatus>("get_live_boost_status"),
+	/**  Whether Live System Boost is supported on this platform. */
+	isLiveBoostSupported: () => __TAURI_INVOKE<boolean>("is_live_boost_supported"),
 };
 
 /* Types */
+export type AbPreviewResult = {
+	originalPath: string,
+	boostedPath: string,
+	snippetStartSecs: number | null,
+	snippetDurationSecs: number | null,
+	originalPeaks: ([(number | null), (number | null)])[],
+	boostedPeaks: ([(number | null), (number | null)])[],
+	analysis: VolumeAnalysis,
+};
+
 export type AppError = { kind: "Io"; message: string } | { kind: "FFmpeg"; message: string } | { kind: "NoAudioTrack"; message: string } | { kind: "CorruptedFile"; message: string } | { kind: "InsufficientDiskSpace"; message: {
 	needed: number,
 	available: number,
 } } | { kind: "InvalidInput"; message: string } | { kind: "Cancelled" } | { kind: "NotFound"; message: string } | { kind: "Other"; message: string };
 
 export type AudioFormat = "mp3" | "wav" | "aac" | "m4a" | "flac" | "opus";
+
+export type BoosterJobSpec = {
+	trim: TrimSpec,
+	preset: BoosterPreset,
+	manualGainPercent: number | null,
+};
+
+/**  The 5 official booster presets + manual mode. */
+export type BoosterPreset = 
+/**  Automatic dynamic gain based on dynamic normalizer + limiter (Default). */
+"smart" | 
+/**  Balanced boost tuned for music (+6 dB default or safe headroom + limiter). */
+"music" | 
+/**  Speech-optimized boost with low-cut filter (highpass 80Hz) to remove rumble. */
+"voice" | 
+/**  Low-end emphasis (bass boost + dynaudnorm + limiter) for bass-heavy audio. */
+"bass" | 
+/**  Maximum amplification with strict limiter — surfaces quality warning in UI. */
+"extreme" | 
+/**  User-controlled slider (0% to 200%). */
+"manual";
 
 export type ConversionOptions = {
 	format: AudioFormat,
@@ -86,6 +133,9 @@ export type ConversionOptions = {
 	outputMode: OutputMode,
 	/**  Required when output_mode == CustomFolder. */
 	customOutputDir: string | null,
+	boostEnabled?: boolean,
+	boostPreset?: BoosterPreset | null,
+	boostManualGainPercent?: number | null,
 };
 
 export type DiskFree = {
@@ -116,6 +166,12 @@ export type JobRecord = {
 };
 
 export type JobStatus = "waiting" | "processing" | "completed" | "failed" | "cancelled";
+
+export type LiveBoostStatus = {
+	isRunning: boolean,
+	currentGain: number | null,
+	isSupported: boolean,
+};
 
 /**  Where output files are written. */
 export type OutputMode = 
@@ -178,6 +234,19 @@ export type TrimSpec = {
 	startTimeSecs: number | null,
 	/**  Stop position; inserted AFTER `-i` as `-to` when present. */
 	endTimeSecs: number | null,
+	boostEnabled?: boolean | null,
+	boostPreset?: BoosterPreset | null,
+	boostManualGainPercent?: number | null,
+};
+
+/**  Results of audio volume analysis via `volumedetect`. */
+export type VolumeAnalysis = {
+	/**  Peak volume in dB (e.g. -6.5 dB). 0 dB represents full scale digital max. */
+	maxVolumeDb: number | null,
+	/**  Mean volume in dB (e.g. -22.3 dB). */
+	meanVolumeDb: number | null,
+	/**  Calculated safe boost gain in dB to reach close to peak without compression. */
+	suggestedGainDb: number | null,
 };
 
 /* Tauri Specta runtime */

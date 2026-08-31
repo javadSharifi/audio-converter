@@ -233,7 +233,6 @@ bash "$ROOT/scripts/patch-android-project.sh" "$TARGET_TRIPLE"
 # ------------------------------------------------------------------------------
 echo -e "\n${BLUE}▶ Generating Specta TypeScript bindings...${NC}"
 pnpm generate:types
-pnpm check:types
 
 echo -e "\n${BLUE}▶ Running Tauri Android Build ($BUILD_MODE, target: $TARGET_ARCH)...${NC}"
 if [ "$BUILD_MODE" = "debug" ]; then

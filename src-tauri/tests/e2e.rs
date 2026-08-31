@@ -347,11 +347,7 @@ fn e2e_trim_start_and_end() {
     let input = gen_video(&dir, "in.mp4"); // 6s total
 
     // 1s → 3s ⇒ expect a ~2s output.
-    let trim = TrimSpec {
-        path: input.to_string_lossy().into_owned(),
-        start_time_secs: Some(1.0),
-        end_time_secs: Some(3.0),
-    };
+    let trim = TrimSpec::new(input.to_string_lossy().into_owned(), Some(1.0), Some(3.0));
     let options = ConversionOptions::default();
     let emitter: audio_converter::processing::pipeline::Emitter = Arc::new(|_| {});
     let outcome = pipeline::run_job(
@@ -383,11 +379,7 @@ fn e2e_trim_start_only_runs_to_eof() {
     let dir = temp_case("trim-start");
     let input = gen_video(&dir, "in.mp4");
 
-    let trim = TrimSpec {
-        path: input.to_string_lossy().into_owned(),
-        start_time_secs: Some(4.0),
-        end_time_secs: None,
-    };
+    let trim = TrimSpec::new(input.to_string_lossy().into_owned(), Some(4.0), None);
     let options = ConversionOptions {
         format: AudioFormat::Opus,
         ..Default::default()

@@ -463,3 +463,188 @@ pub fn log_frontend(level: String, msg: String) {
     crate::logger::log(&level, &format!("[FRONTEND] {msg}"));
 }
 
+use crate::types::{AbPreviewResult, BoosterJobSpec, BoosterPreset, LiveBoostStatus, VolumeAnalysis};
+
+/// Volume analysis for a media file (peak dB, mean dB, suggested gain).
+#[tauri::command]
+#[specta::specta]
+pub async fn analyze_audio_volume(
+    path: String,
+    start_secs: Option<f64>,
+    duration_secs: Option<f64>,
+) -> Result<VolumeAnalysis> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let path = crate::android_fs::ensure_local_path(&path);
+        let ffmpeg = crate::ffmpeg::locate::ffmpeg_path()
+            .map_err(|_| AppError::Other("Bundled ffmpeg binary is missing".into()))?;
+        let cancel = crate::ffmpeg::run::CancelToken::new();
+        crate::processing::sound_booster::analyze_volume(
+            &ffmpeg,
+            Path::new(&path),
+            start_secs,
+            duration_secs,
+            &cancel,
+        )
+    })
+    .await
+    .map_err(|e| AppError::Other(format!("Async task failed: {e}")))?
+}
+
+/// Fast A/B preview snippet generator for Sound Booster.
+#[tauri::command]
+#[specta::specta]
+pub async fn generate_ab_preview(
+    path: String,
+    preset: BoosterPreset,
+    manual_gain_percent: Option<f64>,
+    start_time_secs: Option<f64>,
+    duration_secs: Option<f64>,
+) -> Result<AbPreviewResult> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let path = crate::android_fs::ensure_local_path(&path);
+        let ffmpeg = crate::ffmpeg::locate::ffmpeg_path()
+            .map_err(|_| AppError::Other("Bundled ffmpeg binary is missing".into()))?;
+        let ffprobe = crate::ffmpeg::locate::locate("ffprobe")
+            .map_err(|_| AppError::Other("Bundled ffprobe binary is missing".into()))?;
+        let cancel = crate::ffmpeg::run::CancelToken::new();
+        crate::processing::sound_booster::generate_ab_preview(
+            &ffmpeg,
+            &ffprobe,
+            Path::new(&path),
+            preset,
+            manual_gain_percent,
+            start_time_secs,
+            duration_secs,
+            &cancel,
+        )
+    })
+    .await
+    .map_err(|e| AppError::Other(format!("Async task failed: {e}")))?
+}
+
+/// Enqueue sound booster batch conversion.
+#[tauri::command]
+#[specta::specta]
+pub async fn start_sound_boost(
+    queue: State<'_, QueueManager>,
+    items: Vec<BoosterJobSpec>,
+    options: ConversionOptions,
+    concurrency: Option<u32>,
+) -> Result<Vec<String>> {
+    if items.is_empty() {
+        return Err(AppError::InvalidInput("No input files selected".into()));
+    }
+    options.validate()?;
+    for item in &items {
+        item.trim.validate()?;
+        let p = &item.trim.path;
+        let is_uri = p.starts_with("content://") || p.starts_with("file://");
+        if !is_uri && !Path::new(p).exists() {
+            return Err(AppError::NotFound(p.clone()));
+        }
+    }
+    let mut seen = std::collections::HashSet::new();
+    for item in &items {
+        let key = if cfg!(windows) {
+            item.trim.path.to_lowercase()
+        } else {
+            item.trim.path.clone()
+        };
+        if !seen.insert(key) {
+            return Err(AppError::InvalidInput(format!(
+                "Duplicate input file: {}",
+                item.trim.path
+            )));
+        }
+    }
+    let conc = concurrency.unwrap_or_else(|| Settings::load().concurrency);
+    crate::log_info!(
+        "booster queue started: {} file(s), concurrency {conc}",
+        items.len()
+    );
+    Ok(queue.enqueue_boost(items, options, conc))
+}
+
+/// Start Live System Boost (Android API 29+ only, no-op on desktop).
+#[tauri::command]
+#[specta::specta]
+pub fn start_live_boost(gain: f64) -> Result<()> {
+    #[cfg(target_os = "android")]
+    {
+        crate::android_fs::call_static_void_float("startLiveBoost", gain as f32)
+            .map_err(AppError::Other)?;
+        return Ok(());
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = gain;
+        Err(AppError::Other("Live system boost is only supported on Android".into()))
+    }
+}
+
+/// Stop Live System Boost.
+#[tauri::command]
+#[specta::specta]
+pub fn stop_live_boost() -> Result<()> {
+    #[cfg(target_os = "android")]
+    {
+        crate::android_fs::call_static_void("stopLiveBoost").map_err(AppError::Other)?;
+        return Ok(());
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        Ok(())
+    }
+}
+
+/// Dynamically update gain of Live System Boost.
+#[tauri::command]
+#[specta::specta]
+pub fn set_live_boost_gain(gain: f64) -> Result<()> {
+    #[cfg(target_os = "android")]
+    {
+        crate::android_fs::call_static_void_float("setLiveBoostGain", gain as f32)
+            .map_err(AppError::Other)?;
+        return Ok(());
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = gain;
+        Ok(())
+    }
+}
+
+/// Check status of Live System Boost.
+#[tauri::command]
+#[specta::specta]
+pub fn get_live_boost_status() -> LiveBoostStatus {
+    #[cfg(target_os = "android")]
+    {
+        let is_running = crate::android_fs::call_static_bool("isLiveBoostRunning");
+        let is_supported = crate::android_fs::call_static_bool("isLiveBoostSupported");
+        return LiveBoostStatus {
+            is_running,
+            current_gain: 1.5,
+            is_supported,
+        };
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        LiveBoostStatus {
+            is_running: false,
+            current_gain: 1.0,
+            is_supported: false,
+        }
+    }
+}
+
+/// Whether Live System Boost is supported on this platform.
+#[tauri::command]
+#[specta::specta]
+pub fn is_live_boost_supported() -> bool {
+    #[cfg(target_os = "android")]
+    return crate::android_fs::call_static_bool("isLiveBoostSupported");
+    #[cfg(not(target_os = "android"))]
+    false
+}
+

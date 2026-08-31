@@ -178,21 +178,29 @@ mod tests {
     #[test]
     fn load_survives_corrupt_file() {
         // Serialize env-var mutation — unit tests share one process.
-        let _guard = ENV_LOCK.lock().unwrap();
-        let dir = std::env::temp_dir().join(format!("ac-settings-{}", std::process::id()));
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let dir = std::env::temp_dir().join(format!(
+            "ac-settings-corrupt-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
         std::fs::create_dir_all(&dir).unwrap();
         std::env::set_var("AUDIO_CONVERTER_DATA_DIR", &dir);
         std::fs::write(dir.join("settings.json"), "{not json").unwrap();
         let s = Settings::load();
         assert_eq!(s, Settings::default());
-        std::fs::remove_dir_all(&dir).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
         std::env::remove_var("AUDIO_CONVERTER_DATA_DIR");
     }
 
     #[test]
     fn save_is_atomic_and_round_trips() {
-        let _guard = ENV_LOCK.lock().unwrap();
-        let dir = std::env::temp_dir().join(format!("ac-settings-atomic-{}", std::process::id()));
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let dir = std::env::temp_dir().join(format!(
+            "ac-settings-atomic-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
         std::fs::create_dir_all(&dir).unwrap();
         std::env::set_var("AUDIO_CONVERTER_DATA_DIR", &dir);
 
@@ -203,7 +211,7 @@ mod tests {
         assert!(!dir.join("settings.json.tmp").exists());
         assert_eq!(Settings::load(), s);
 
-        std::fs::remove_dir_all(&dir).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
         std::env::remove_var("AUDIO_CONVERTER_DATA_DIR");
     }
 }

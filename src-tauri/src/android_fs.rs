@@ -359,6 +359,16 @@ pub fn call_static_void(method: &str) -> Result<(), String> {
     })
 }
 
+#[cfg(target_os = "android")]
+pub fn call_static_void_float(method: &str, val: f32) -> Result<(), String> {
+    with_jni_env(|env| {
+        let cls = main_activity_class(env)?;
+        env.call_static_method(&cls, method, "(F)V", &[jni::objects::JValue::Float(val)])
+            .map_err(|e| format!("Failed to call {method}: {e}"))?;
+        Ok(())
+    })
+}
+
 #[cfg(not(target_os = "android"))]
 pub fn call_static_bool(_method: &str) -> bool {
     true
@@ -366,5 +376,10 @@ pub fn call_static_bool(_method: &str) -> bool {
 
 #[cfg(not(target_os = "android"))]
 pub fn call_static_void(_method: &str) -> Result<(), String> {
+    Ok(())
+}
+
+#[cfg(not(target_os = "android"))]
+pub fn call_static_void_float(_method: &str, _val: f32) -> Result<(), String> {
     Ok(())
 }

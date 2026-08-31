@@ -16,7 +16,7 @@ export interface FileSlice {
   setTrim: (path: string, field: "trimStartSecs" | "trimEndSecs", secs: number | null) => void;
   updateFileMeta: (
     path: string,
-    patch: Partial<Pick<InputFile, "durationSecs" | "formatName" | "sizeBytes">>,
+    patch: Partial<InputFile>,
   ) => void;
 }
 

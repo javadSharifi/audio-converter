@@ -10,6 +10,11 @@ import type {
   Settings as GeneratedSettings,
   AppError,
   DiskFree,
+  BoosterPreset,
+  VolumeAnalysis,
+  AbPreviewResult,
+  BoosterJobSpec,
+  LiveBoostStatus,
 } from "./generated";
 
 export type {
@@ -20,6 +25,11 @@ export type {
   JobStatus,
   AppError,
   DiskFree,
+  BoosterPreset,
+  VolumeAnalysis,
+  AbPreviewResult,
+  BoosterJobSpec,
+  LiveBoostStatus,
 };
 
 export type ConversionOptions = GeneratedConversionOptions;
@@ -49,6 +59,10 @@ export interface InputFile {
   /** Optional per-file trim window, seconds. Undefined = whole file. */
   trimStartSecs?: number | null;
   trimEndSecs?: number | null;
+  /** Optional per-file sound booster settings */
+  boostEnabled?: boolean;
+  boostPreset?: BoosterPreset;
+  boostManualGainPercent?: number;
 }
 
 export const MP3_BITRATES = [64, 96, 128, 160, 192, 256, 320] as const;
