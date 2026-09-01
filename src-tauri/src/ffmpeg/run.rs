@@ -31,10 +31,11 @@ impl CancelToken {
 
     /// Request cancellation and kill any attached child immediately.
     /// Safe to call multiple times and when no child is running.
+    /// Takes child out of lock before kill/wait to avoid deadlock with poll loop.
     pub fn cancel(&self) {
         self.inner.cancelled.store(true, Ordering::SeqCst);
-        let mut guard = self.inner.child.lock().unwrap();
-        if let Some(child) = guard.as_mut() {
+        let child_opt = self.inner.child.lock().unwrap().take();
+        if let Some(mut child) = child_opt {
             let _ = child.kill();
             let _ = child.wait();
         }
@@ -159,13 +160,11 @@ impl RunSpec {
         // ---- poll loop ---------------------------------------------------
         let exit_status = loop {
             if self.cancel.is_cancelled() {
-                let mut guard = self.cancel.inner.child.lock().unwrap();
-                if let Some(c) = guard.as_mut() {
+                let child_opt = self.cancel.inner.child.lock().unwrap().take();
+                if let Some(mut c) = child_opt {
                     let _ = c.kill();
                     let _ = c.wait();
                 }
-                *guard = None;
-                drop(guard);
                 let _ = out_thread.join();
                 let _ = err_thread.join();
                 crate::log_warn!("ffmpeg run cancelled");

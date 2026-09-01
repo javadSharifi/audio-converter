@@ -204,6 +204,28 @@ export const en = {
   liveBoostConsentBody:
     "This feature boosts audio from other apps (music, videos, voice messages). Live phone calls are not covered due to Android privacy rules. The system will ask for your confirmation — this is normal and safe.",
   continueBtn: "Got it, Enable Booster",
+
+  // Unified Booster (Android)
+  unifiedBoosterTitle: "Sound Booster",
+  unifiedBoosterSubtitle: "One control for volume & live system boost",
+  modeStandard: "Standard",
+  modeLive: "Live",
+  modeStandardDesc: "App volume boost (AudioEffect)",
+  modeLiveDesc: "System-wide live boost (MediaProjection)",
+  unifiedPowerOn: "Booster On",
+  unifiedPowerOff: "Booster Off",
+  unifiedHintStandard: "Standard mode amplifies app playback with limiter protection.",
+  unifiedHintLive: "Live mode captures system audio — needs screen capture permission.",
+  engineBadgeStandard: "AudioEffect",
+  engineBadgeLive: "MediaProjection",
+  desktopUnsupportedTitle: "Not supported on macOS",
+  desktopUnsupportedDesc: "Per-app volume boost is not available on macOS. Use File Booster for offline files.",
+  desktopHintWin: "Windows: 0–100% per-app volume via WASAPI",
+  desktopHintLinux: "Linux: 0–150% per-app volume via PulseAudio",
+  desktopNoSessions: "No audio sessions found — play something first",
+  desktopRefresh: "Refresh",
+  desktopSessionsError: "Couldn't list audio sessions — tap Refresh to retry",
+  desktopCapabilityNone: "Per-app boost not available on this system",
 } as const;
 
 export type TranslationKey = keyof typeof en;

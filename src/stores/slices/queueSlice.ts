@@ -17,15 +17,15 @@ export interface QueueSlice {
   initEventListeners: () => Promise<() => void>;
 }
 
-let unlistenFns: UnlistenFn[] = [];
-
 export const createQueueSlice: StateCreator<
   QueueSlice & FileSlice & SettingsSlice & ToastSlice,
   [],
   [],
   QueueSlice
-> = (set, get) => ({
-  jobs: new Map(),
+> = (set, get) => {
+  let localUnlistenFns: UnlistenFn[] = [];
+  return {
+  jobs: new Map<string, QueueItem>(),
   starting: false,
 
   async startQueue() {
@@ -67,7 +67,7 @@ export const createQueueSlice: StateCreator<
       boostPreset: f.boostPreset ?? null,
       boostManualGainPercent: f.boostManualGainPercent ?? null,
     }));
-    // Fresh run = fresh panel. Purge UI rows.
+    const prevJobs = new Map(get().jobs);
     set({ starting: true, jobs: new Map() });
     void api.logFrontend(
       "INFO",
@@ -76,15 +76,21 @@ export const createQueueSlice: StateCreator<
     const concurrency = get().settings?.concurrency ?? 1;
     try {
       const jobIds = await api.startConversion(items, options, concurrency);
+      if (jobIds.length !== items.length) {
+        throw new Error(`Job ID count mismatch: expected ${items.length}, got ${jobIds.length}`);
+      }
       void api.logFrontend(
         "INFO",
         `startQueue: received jobIds from backend: ${jobIds.join(", ")}`,
       );
-      // Initialize the exact batch jobs in state with the returned IDs
       set((s) => {
         const batchJobs = new Map<string, QueueItem>();
         for (let i = 0; i < items.length; i++) {
-          const id = jobIds[i];
+          const rawId = jobIds[i];
+          if (!rawId || typeof rawId !== "string" || rawId.trim() === "") {
+            throw new Error(`Invalid job id at index ${i}`);
+          }
+          const id = rawId;
           const existing = s.jobs.get(id);
           batchJobs.set(
             id,
@@ -106,6 +112,7 @@ export const createQueueSlice: StateCreator<
     } catch (e) {
       void api.logFrontend("ERROR", `startQueue failed: ${String(e)}`);
       pushToast("error", String(e));
+      set({ jobs: prevJobs });
     } finally {
       set({ starting: false });
     }
@@ -134,16 +141,16 @@ export const createQueueSlice: StateCreator<
   },
 
   async initEventListeners() {
-    for (const un of unlistenFns) un();
-    unlistenFns = [
+    for (const un of localUnlistenFns) un();
+    localUnlistenFns = [
       await listen<QueueItem>("job-event", (ev) => {
-        const raw = ev.payload as any;
+        const raw = ev.payload as Record<string, unknown>;
+        const rawId = (raw["id"] as string) ?? (raw["jobId"] as string) ?? "";
+        if (!rawId || typeof rawId !== "string" || rawId.trim() === "") return;
         const item: QueueItem = {
-          ...raw,
-          id: String(raw.id ?? raw.jobId ?? ""),
+          ...(raw as unknown as QueueItem),
+          id: String(rawId),
         };
-        // No per-event logging here: progress ticks arrive ~4x/s per job and
-        // would spam the IPC channel and app.log.
         set((s) => {
           const jobs = new Map(s.jobs);
           jobs.set(item.id, item);
@@ -152,8 +159,9 @@ export const createQueueSlice: StateCreator<
       }),
     ];
     return () => {
-      for (const un of unlistenFns) un();
-      unlistenFns = [];
+      for (const un of localUnlistenFns) un();
+      localUnlistenFns = [];
     };
   },
-});
+  };
+};

@@ -6,14 +6,13 @@ import { FileList } from "./components/FileList";
 import { OptionsPanel } from "./components/OptionsPanel";
 import { JobsPanel } from "./components/JobsPanel";
 import { Toasts } from "./components/Toasts";
-import { LiveBoosterPage } from "./features/sound-booster/live-booster/LiveBoosterPage";
+import { BoosterPanel } from "./components/BoosterPanel";
 import { useAppStore } from "./stores/useAppStore";
 import { translate } from "./i18n";
 import { useTheme, useDirection, resolveTheme } from "./hooks/useTheme";
 import { openPath } from "@tauri-apps/plugin-opener";
 import { listen } from "@tauri-apps/api/event";
 import { isLossy } from "./types";
-import { parseDurationInput } from "./utils/format";
 import { isAndroid } from "./utils/platform";
 import * as api from "./utils/tauri";
 import { useNativeDragDrop } from "./hooks/useNativeDragDrop";
@@ -39,7 +38,10 @@ function StartBar(): React.JSX.Element {
     busy ||
     starting ||
     (isLossy(options.format) && options.quality === "custom" && !options.customBitrateKbps) ||
-    (options.splitEnabled && parseDurationInput(String(options.splitDurationSecs)) === null) ||
+    (options.splitEnabled &&
+      (options.splitDurationSecs === null ||
+        !Number.isFinite(options.splitDurationSecs) ||
+        options.splitDurationSecs <= 0)) ||
     (options.outputMode === "custom_folder" && !options.customOutputDir);
 
   const onStart = () => {
@@ -79,29 +81,47 @@ export default function App(): React.JSX.Element {
   const loadSettings = useAppStore((s) => s.loadSettings);
   const initEventListeners = useAppStore((s) => s.initEventListeners);
 
-  // Android permission gate
+  // Android permission gate — honors grant, clears session flag, handles focus
   const [permOpen, setPermOpen] = useState(false);
   useEffect(() => {
     if (!isAndroid()) return;
     let cancelled = false;
     const check = () => {
       void api.hasMediaPermissions().then((granted) => {
-        if (cancelled || granted) return;
+        if (cancelled) return;
+        if (granted) {
+          try {
+            sessionStorage.removeItem("ac:perm-modal-shown");
+          } catch {}
+          setPermOpen(false);
+          return;
+        }
         try {
           if (sessionStorage.getItem("ac:perm-modal-shown")) return;
           sessionStorage.setItem("ac:perm-modal-shown", "1");
-        } catch {
-          /* storage unavailable */
-        }
+        } catch {}
         setPermOpen(true);
       });
     };
     check();
-    const onShow = () => check();
+    const onShow = () => {
+      try {
+        sessionStorage.removeItem("ac:perm-modal-shown");
+      } catch {}
+      check();
+    };
+    const onFocus = () => check();
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") check();
+    };
     window.addEventListener("ac:show-permission-modal", onShow);
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibility);
     return () => {
       cancelled = true;
       window.removeEventListener("ac:show-permission-modal", onShow);
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibility);
     };
   }, []);
 
@@ -179,7 +199,13 @@ export default function App(): React.JSX.Element {
           </>
         )}
 
-        {activeTab === "live_booster" && <LiveBoosterPage />}
+        {activeTab === "live_booster" && (
+          <div className="flex flex-1 items-center justify-center py-6 w-full">
+            <div className="w-full max-w-xl">
+              <BoosterPanel />
+            </div>
+          </div>
+        )}
       </main>
 
       {/* Converter Start Bar (docked cleanly above Bottom Navigation) */}

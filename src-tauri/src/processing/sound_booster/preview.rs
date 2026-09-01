@@ -28,16 +28,22 @@ fn sweep_old_previews(dir: &Path) {
         let now = SystemTime::now();
         for entry in entries.flatten() {
             let path = entry.path();
-            if path.is_file() {
-                let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-                if ext == "wav" || ext == "mp3" {
-                    if let Ok(meta) = entry.metadata() {
-                        if let Ok(modified) = meta.modified() {
-                            if let Ok(elapsed) = now.duration_since(modified) {
-                                if elapsed.as_secs() > 300 {
-                                    let _ = std::fs::remove_file(path);
-                                }
-                            }
+            if !path.is_file() {
+                continue;
+            }
+            let fname = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            if !(fname.starts_with("orig_") || fname.starts_with("boost_")) {
+                continue;
+            }
+            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+            if ext != "wav" && ext != "mp3" {
+                continue;
+            }
+            if let Ok(meta) = entry.metadata() {
+                if let Ok(modified) = meta.modified() {
+                    if let Ok(elapsed) = now.duration_since(modified) {
+                        if elapsed.as_secs() > 300 {
+                            let _ = std::fs::remove_file(path);
                         }
                     }
                 }

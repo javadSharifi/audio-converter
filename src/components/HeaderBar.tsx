@@ -51,8 +51,17 @@ export function HeaderBar(): React.JSX.Element {
         </h1>
       </div>
 
-      {/* Main Header Action: Settings Button */}
+      {/* Header Actions: Theme quick toggle + Settings */}
       <div className="flex items-center gap-2 text-xs">
+        <button
+          type="button"
+          onClick={toggleTheme}
+          className="flex h-8 w-8 items-center justify-center rounded-xl border border-black/5 bg-black/[0.03] text-zinc-600 transition-all hover:bg-black/[0.06] active:scale-95 dark:border-white/5 dark:bg-white/[0.04] dark:text-zinc-300 dark:hover:bg-white/[0.08]"
+          title={isDark ? translate(lang, "themeLight") : translate(lang, "themeDark")}
+          aria-label="Toggle theme"
+        >
+          {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+        </button>
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}

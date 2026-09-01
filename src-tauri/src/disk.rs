@@ -2,13 +2,17 @@
 #[cfg(unix)]
 pub fn free_bytes(path: &std::path::Path) -> Option<u64> {
     use std::ffi::CString;
-    let c = CString::new(path.to_string_lossy().as_bytes()).ok()?;
+    let raw = path.to_string_lossy();
+    // Interior NUL would truncate CString; treat as invalid path
+    if raw.contains('\0') {
+        return None;
+    }
+    let c = CString::new(raw.as_bytes()).ok()?;
     let mut stat: libc::statvfs = unsafe { std::mem::zeroed() };
     let rc = unsafe { libc::statvfs(c.as_ptr(), &mut stat) };
     if rc != 0 {
         return None;
     }
-    // f_bavail = blocks available to unprivileged users.
     Some(stat.f_bavail as u64 * stat.f_frsize as u64)
 }
 

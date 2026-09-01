@@ -56,13 +56,22 @@ export function parseDurationInput(raw: string): number | null {
     if (parts.length > 3 || parts.some((p) => p === "" || !/^\d+(\.\d+)?$/.test(p))) {
       return null;
     }
+    // Clock values: MM/SS parts must be <60, allow fractional only on last part
+    for (let i = 0; i < parts.length - 1; i++) {
+      if (parts[i].includes(".")) return null;
+      if (Number(parts[i]) >= 60) return null;
+    }
+    if (parts.length > 1 && Number(parts[parts.length - 1]) >= 60) {
+      // Seconds must be <60 even with decimals (e.g. 01:65 invalid)
+      return null;
+    }
     let secs = 0;
     for (const part of parts) secs = secs * 60 + Number(part);
-    return secs > 0 ? secs : null;
+    return secs > 0 && Number.isFinite(secs) ? secs : null;
   }
   if (!/^\d+(\.\d+)?$/.test(trimmed)) return null;
   const minutes = Number(trimmed);
-  return minutes > 0 ? minutes * 60 : null;
+  return Number.isFinite(minutes) && minutes > 0 ? minutes * 60 : null;
 }
 
 /** Clamp helper used by numeric inputs. */
@@ -80,13 +89,19 @@ export function parseTimeInput(raw: string): number | null {
   if (!trimmed) return null;
   if (!trimmed.includes(":")) {
     if (!/^\d+(\.\d+)?$/.test(trimmed)) return null;
-    return Number(trimmed);
+    const v = Number(trimmed);
+    return Number.isFinite(v) ? v : null;
   }
   const parts = trimmed.split(":").map((p) => p.trim());
   if (parts.length > 3 || parts.some((p) => p === "" || !/^\d+(\.\d+)?$/.test(p))) {
     return null;
   }
+  for (let i = 0; i < parts.length - 1; i++) {
+    if (parts[i].includes(".")) return null;
+    if (Number(parts[i]) >= 60) return null;
+  }
+  if (parts.length > 1 && Number(parts[parts.length - 1]) >= 60) return null;
   let secs = 0;
   for (const part of parts) secs = secs * 60 + Number(part);
-  return secs;
+  return Number.isFinite(secs) ? secs : null;
 }

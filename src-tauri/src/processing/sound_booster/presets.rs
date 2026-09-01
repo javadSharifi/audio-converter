@@ -46,7 +46,7 @@ pub fn build_preset_filter_chain(
         }
         BoosterPreset::Music => {
             let gain_db = if let Some(a) = analysis {
-                (a.suggested_gain_db + 2.0).clamp(3.0, 9.0)
+                (a.suggested_gain_db + 2.0).clamp(0.0, 9.0)
             } else {
                 6.0
             };
@@ -66,8 +66,8 @@ pub fn build_preset_filter_chain(
             format!("volume=14dB,{STRICT_LIMITER}")
         }
         BoosterPreset::Manual => {
-            // Percentage: 0% = 0.0 (mute), 100% = 1.0 (0dB), 200% = 2.0 (+6.02dB)
-            let pct = manual_gain_percent.unwrap_or(100.0).clamp(0.0, 300.0);
+            // Percentage: 0% = 0.0 (mute), 100% = 1.0 (0dB), 200% = 2.0 (+6.02dB), clamp 0..200
+            let pct = manual_gain_percent.unwrap_or(100.0).clamp(0.0, 200.0);
             let multiplier = pct / 100.0;
             format!("volume={multiplier:.3},{DEFAULT_LIMITER}")
         }

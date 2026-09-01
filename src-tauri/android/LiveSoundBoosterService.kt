@@ -16,7 +16,9 @@ import android.media.AudioTrack
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.util.Log
 import androidx.annotation.Keep
 import androidx.core.app.NotificationCompat
@@ -51,6 +53,8 @@ class LiveSoundBoosterService : Service() {
   private var audioTrack: AudioTrack? = null
   private var processingThread: Thread? = null
   private val isRunning = AtomicBoolean(false)
+  private val startLock = Any()
+  private val mainHandler = Handler(Looper.getMainLooper())
 
   override fun onBind(intent: Intent?): IBinder? = null
 
@@ -62,6 +66,12 @@ class LiveSoundBoosterService : Service() {
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
     when (intent?.action) {
       ACTION_START -> {
+        synchronized(startLock) {
+          if (isRunning.get() || isServiceRunning) {
+            Log.w(TAG, "Duplicate start ignored — already running")
+            return START_NOT_STICKY
+          }
+        }
         val resultCode = intent.getIntExtra(EXTRA_RESULT_CODE, 0)
         val dataIntent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
           intent.getParcelableExtra(EXTRA_DATA_INTENT, Intent::class.java)
@@ -139,6 +149,17 @@ class LiveSoundBoosterService : Service() {
     }
   }
 
+  private fun cleanupAfterFailedStart() {
+    try { audioRecord?.release() } catch (_: Throwable) {}
+    audioRecord = null
+    try { audioTrack?.release() } catch (_: Throwable) {}
+    audioTrack = null
+    try { mediaProjection?.stop() } catch (_: Throwable) {}
+    mediaProjection = null
+    isRunning.set(false)
+    isServiceRunning = false
+  }
+
   private fun startBooster(resultCode: Int, dataIntent: Intent) {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
       Log.e(TAG, "AudioPlaybackCapture requires Android 10 (API 29)+")
@@ -146,16 +167,34 @@ class LiveSoundBoosterService : Service() {
       return
     }
 
+    synchronized(startLock) {
+      if (isRunning.get()) {
+        Log.w(TAG, "startBooster ignored — already running")
+        return
+      }
+      // Reserve the slot immediately so rapid ACTION_STARTs can't both pass;
+      // every failure path below resets via cleanupAfterFailedStart().
+      isRunning.set(true)
+    }
+
     try {
       val notification = buildNotification()
-      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-        startForeground(
-          NOTIFICATION_ID,
-          notification,
-          ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
-        )
-      } else {
-        startForeground(NOTIFICATION_ID, notification)
+      try {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+          startForeground(
+            NOTIFICATION_ID,
+            notification,
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+          )
+        } else {
+          startForeground(NOTIFICATION_ID, notification)
+        }
+      } catch (se: SecurityException) {
+        Log.e(TAG, "startForeground SecurityException — missing foregroundServiceType?", se)
+        cleanupAfterFailedStart()
+        MainActivity.notifyLiveBoostState(false)
+        stopSelf()
+        return
       }
 
       val projectionManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
@@ -163,6 +202,7 @@ class LiveSoundBoosterService : Service() {
 
       if (mediaProjection == null) {
         Log.e(TAG, "MediaProjection could not be initialized")
+        cleanupAfterFailedStart()
         stopSelf()
         return
       }
@@ -171,16 +211,24 @@ class LiveSoundBoosterService : Service() {
         .addMatchingUsage(AudioAttributes.USAGE_MEDIA)
         .addMatchingUsage(AudioAttributes.USAGE_GAME)
         .addMatchingUsage(AudioAttributes.USAGE_UNKNOWN)
-        .excludeUid(android.os.Process.myUid()) // Prevent self-capture audio feedback loop
+        .excludeUid(android.os.Process.myUid())
         .build()
 
-      val sampleRate = 44100
+      val sampleRate = 48000
       val channelConfigIn = AudioFormat.CHANNEL_IN_STEREO
       val channelConfigOut = AudioFormat.CHANNEL_OUT_STEREO
       val audioEncoding = AudioFormat.ENCODING_PCM_16BIT
 
-      val minBufSize = AudioRecord.getMinBufferSize(sampleRate, channelConfigIn, audioEncoding)
-      val bufSize = (minBufSize * 2).coerceAtLeast(4096)
+      val recordMin = AudioRecord.getMinBufferSize(sampleRate, channelConfigIn, audioEncoding)
+      val trackMin = AudioTrack.getMinBufferSize(sampleRate, channelConfigOut, audioEncoding)
+      if (recordMin <= 0 || trackMin <= 0) {
+        Log.e(TAG, "getMinBufferSize failed: recordMin=$recordMin trackMin=$trackMin")
+        cleanupAfterFailedStart()
+        stopSelf()
+        return
+      }
+      val recordBufSize = (recordMin * 4).coerceAtLeast(16384)
+      val trackBufSize = (trackMin * 4).coerceAtLeast(16384)
 
       audioRecord = AudioRecord.Builder()
         .setAudioPlaybackCaptureConfig(config)
@@ -191,8 +239,15 @@ class LiveSoundBoosterService : Service() {
             .setChannelMask(channelConfigIn)
             .build()
         )
-        .setBufferSizeInBytes(bufSize)
+        .setBufferSizeInBytes(recordBufSize)
         .build()
+
+      if (audioRecord?.state != AudioRecord.STATE_INITIALIZED) {
+        Log.e(TAG, "AudioRecord not initialized state=${audioRecord?.state}")
+        cleanupAfterFailedStart()
+        stopSelf()
+        return
+      }
 
       audioTrack = AudioTrack.Builder()
         .setAudioAttributes(
@@ -208,60 +263,126 @@ class LiveSoundBoosterService : Service() {
             .setChannelMask(channelConfigOut)
             .build()
         )
-        .setBufferSizeInBytes(bufSize)
-        .setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
+        .setBufferSizeInBytes(trackBufSize)
+        .setPerformanceMode(AudioTrack.PERFORMANCE_MODE_NONE)
         .build()
 
-      audioRecord?.startRecording()
-      audioTrack?.play()
+      if (audioTrack?.state != AudioTrack.STATE_INITIALIZED) {
+        Log.e(TAG, "AudioTrack not initialized state=${audioTrack?.state}")
+        cleanupAfterFailedStart()
+        stopSelf()
+        return
+      }
 
-      isRunning.set(true)
+      try {
+        audioRecord?.startRecording()
+      } catch (t: Throwable) {
+        Log.e(TAG, "startRecording failed", t)
+        cleanupAfterFailedStart()
+        stopSelf()
+        return
+      }
+      if (audioRecord?.recordingState != AudioRecord.RECORDSTATE_RECORDING) {
+        Log.e(TAG, "startRecording did not enter RECORDING state")
+        cleanupAfterFailedStart()
+        stopSelf()
+        return
+      }
+
+      try {
+        audioTrack?.play()
+      } catch (t: Throwable) {
+        Log.e(TAG, "AudioTrack play failed", t)
+        cleanupAfterFailedStart()
+        stopSelf()
+        return
+      }
+
       isServiceRunning = true
       MainActivity.notifyLiveBoostState(true)
 
+      val shortsPerRead = recordBufSize / 2
       processingThread = Thread({
-        processAudioLoop(bufSize / 2)
+        processAudioLoop(shortsPerRead)
       }, "LiveSoundBoosterDSP")
       processingThread?.start()
 
-      Log.i(TAG, "Live Sound Booster started successfully")
+      Log.i(TAG, "Live Sound Booster started successfully sr=$sampleRate recordBuf=$recordBufSize trackBuf=$trackBufSize")
     } catch (t: Throwable) {
       Log.e(TAG, "Failed to start Live Sound Booster", t)
-      stopBooster()
+      cleanupAfterFailedStart()
+      MainActivity.notifyLiveBoostState(false)
+      stopSelf()
     }
   }
 
   private fun processAudioLoop(bufferSizeShorts: Int) {
     val buffer = ShortArray(bufferSizeShorts)
-
+    var consecutiveErrors = 0
     while (isRunning.get()) {
       val record = audioRecord ?: break
       val track = audioTrack ?: break
 
-      val readCount = record.read(buffer, 0, buffer.size)
-      if (readCount > 0) {
-        val gain = currentGain
-        // Real-time DSP: Gain multiplier + Continuous Soft-knee Limiter
-        for (i in 0 until readCount) {
-          val sample = buffer[i] * gain
-          buffer[i] = softLimit(sample)
+      // Guard: if not recording, backoff
+      if (record.recordingState != AudioRecord.RECORDSTATE_RECORDING) {
+        Log.w(TAG, "not in RECORDING state, sleeping")
+        try { Thread.sleep(50) } catch (_: InterruptedException) { break }
+        continue
+      }
+      if (track.playState != AudioTrack.PLAYSTATE_PLAYING) {
+        try { track.play() } catch (_: Throwable) {}
+      }
+
+      val readCount = try {
+        record.read(buffer, 0, buffer.size)
+      } catch (t: Throwable) {
+        Log.e(TAG, "read exception", t)
+        AudioRecord.ERROR_INVALID_OPERATION
+      }
+
+      when {
+        readCount > 0 -> {
+          consecutiveErrors = 0
+          val gain = currentGain
+          for (i in 0 until readCount) {
+            val sample = buffer[i] * gain
+            buffer[i] = softLimit(sample)
+          }
+          val written = try { track.write(buffer, 0, readCount) } catch (t: Throwable) {
+            Log.e(TAG, "track write exception", t)
+            AudioTrack.ERROR_INVALID_OPERATION
+          }
+          if (written < 0) {
+            Log.w(TAG, "AudioTrack write error: $written")
+          }
         }
-        track.write(buffer, 0, readCount)
-      } else if (readCount < 0) {
-        Log.w(TAG, "AudioRecord read error: $readCount")
-        try {
-          Thread.sleep(10)
-        } catch (_: InterruptedException) {
-          break
+        readCount == AudioRecord.ERROR_INVALID_OPERATION || readCount == AudioRecord.ERROR_BAD_VALUE || readCount == AudioRecord.ERROR_DEAD_OBJECT -> {
+          Log.w(TAG, "AudioRecord read error: $readCount consecutive=$consecutiveErrors")
+          consecutiveErrors++
+          if (consecutiveErrors > 8) {
+            Log.e(TAG, "Too many consecutive read errors, stopping loop")
+            break
+          }
+          try { Thread.sleep(20) } catch (_: InterruptedException) { break }
+        }
+        readCount == 0 -> {
+          try { Thread.sleep(5) } catch (_: InterruptedException) { break }
+        }
+        readCount < 0 -> {
+          Log.w(TAG, "AudioRecord read error: $readCount")
+          consecutiveErrors++
+          if (consecutiveErrors > 12) break
+          try { Thread.sleep(10) } catch (_: InterruptedException) { break }
         }
       }
     }
+    // If loop exits while still marked running, schedule stop on main thread
+    if (isRunning.get()) {
+      Log.w(TAG, "processAudioLoop exiting unexpectedly, scheduling stop")
+      mainHandler.post { stopBooster() }
+    }
   }
 
-  /**
-   * Continuous, smooth C1 soft-knee limiter for 16-bit PCM.
-   * Eliminates distortion discontinuities and protects against clipping.
-   */
   private fun softLimit(sample: Float): Short {
     val norm = sample / 32768.0f
     val absNorm = Math.abs(norm)
@@ -286,17 +407,22 @@ class LiveSoundBoosterService : Service() {
 
     try {
       processingThread?.interrupt()
+      try { processingThread?.join(800) } catch (_: Throwable) {}
       processingThread = null
 
-      audioRecord?.stop()
-      audioRecord?.release()
+      try {
+        if (audioRecord?.recordingState == AudioRecord.RECORDSTATE_RECORDING) audioRecord?.stop()
+      } catch (_: Throwable) {}
+      try { audioRecord?.release() } catch (_: Throwable) {}
       audioRecord = null
 
-      audioTrack?.stop()
-      audioTrack?.release()
+      try {
+        if (audioTrack?.playState == AudioTrack.PLAYSTATE_PLAYING) audioTrack?.stop()
+      } catch (_: Throwable) {}
+      try { audioTrack?.release() } catch (_: Throwable) {}
       audioTrack = null
 
-      mediaProjection?.stop()
+      try { mediaProjection?.stop() } catch (_: Throwable) {}
       mediaProjection = null
     } catch (t: Throwable) {
       Log.w(TAG, "Error cleaning up live booster resources", t)
@@ -306,7 +432,7 @@ class LiveSoundBoosterService : Service() {
       MainActivity.notifyLiveBoostState(false)
     }
 
-    stopForeground(STOP_FOREGROUND_REMOVE)
+    try { stopForeground(STOP_FOREGROUND_REMOVE) } catch (_: Throwable) {}
     stopSelf()
     Log.i(TAG, "Live Sound Booster stopped")
   }

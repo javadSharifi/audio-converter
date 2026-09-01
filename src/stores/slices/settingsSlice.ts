@@ -76,11 +76,33 @@ export const createSettingsSlice: StateCreator<
   },
 
   updateSettings(patch) {
-    set((s) => ({
-      settings: s.settings ? { ...s.settings, ...patch } : (patch as AppSettings),
-    }));
-    if (patch.language) set({ lang: patch.language });
-    if (patch.theme) set({ theme: patch.theme });
+    set((s) => {
+      if (!s.settings) return {};
+      const next = { ...s.settings, ...patch };
+      // Android: custom_folder not writable via plain paths — coerce to safe mode
+      if (isAndroid() && next.defaultOutputMode === "custom_folder") {
+        next.defaultOutputMode = "same_as_source";
+        next.defaultOutputDir = null;
+      }
+      // keep options in sync when output mode changes (updater stays pure)
+      if (patch.defaultOutputMode) {
+        const outputMode =
+          isAndroid() && patch.defaultOutputMode === "custom_folder"
+            ? "same_as_source"
+            : patch.defaultOutputMode;
+        return {
+          settings: next,
+          options: {
+            ...s.options,
+            outputMode,
+            customOutputDir: isAndroid() ? null : next.defaultOutputDir,
+          },
+        };
+      }
+      return { settings: next };
+    });
+    if (patch.language) set({ lang: patch.language as Lang });
+    if (patch.theme) set({ theme: patch.theme as SettingsSlice["theme"] });
   },
 
   async persistSettings() {
@@ -88,7 +110,6 @@ export const createSettingsSlice: StateCreator<
     if (!settings) return;
     try {
       await api.saveSettings(settings);
-      get().pushToast("info", "settingsSaved");
     } catch {
       /* keep the in-memory state; a failed save must not crash the UI */
     }

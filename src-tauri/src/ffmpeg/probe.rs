@@ -71,6 +71,14 @@ pub fn probe_file(
         .output()
         .map_err(|e| AppError::Io(format!("Failed to launch ffprobe: {e}")))?;
 
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(AppError::CorruptedFile(format!(
+            "ffprobe failed for {path}: {}",
+            stderr.trim()
+        )));
+    }
+
     let stdout = String::from_utf8_lossy(&output.stdout);
     let result = parse_probe_json(&stdout)?;
 

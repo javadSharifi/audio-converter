@@ -20,8 +20,13 @@ export interface FileSlice {
   ) => void;
 }
 
-const IS_WINDOWS = typeof navigator !== "undefined" && /win/i.test(navigator.userAgent);
-const pathKey = (p: string): string => (IS_WINDOWS ? p.toLowerCase() : p);
+function isWindowsRuntime(): boolean {
+  if (typeof navigator === "undefined") return false;
+  const uaData = (navigator as unknown as { userAgentData?: { platform?: string } }).userAgentData;
+  if (uaData?.platform) return /win/i.test(uaData.platform);
+  return /win/i.test(navigator.userAgent);
+}
+const pathKey = (p: string): string => (isWindowsRuntime() ? p.toLowerCase() : p);
 
 /** True when any job is still referencing the given source path. */
 function hasActiveJob(jobs: QueueSlice["jobs"], path: string): boolean {
@@ -137,16 +142,20 @@ export const createFileSlice: StateCreator<
   },
 
   removeFile(path) {
-    // Android: free the staged cache copy backing this row (no-op elsewhere).
-    // Never delete while a job is still reading the staged file.
-    if (!hasActiveJob(get().jobs, path)) api.deleteStagedInput(path);
+    const jobsSnapshot = get().jobs;
+    const filesSnapshot = get().files;
+    const target = filesSnapshot.find((f) => f.path === path);
+    if (target && !hasActiveJob(jobsSnapshot, path)) {
+      void api.deleteStagedInput(path).catch(() => {});
+    }
     set((s) => ({ files: s.files.filter((f) => f.path !== path) }));
   },
 
   clearFiles() {
     const jobs = get().jobs;
-    for (const f of get().files) {
-      if (!hasActiveJob(jobs, f.path)) api.deleteStagedInput(f.path);
+    const filesSnap = [...get().files];
+    for (const f of filesSnap) {
+      if (!hasActiveJob(jobs, f.path)) void api.deleteStagedInput(f.path).catch(() => {});
     }
     set({ files: [] });
   },

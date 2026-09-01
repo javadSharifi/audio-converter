@@ -75,6 +75,9 @@ export const commands = {
 	getLiveBoostStatus: () => __TAURI_INVOKE<LiveBoostStatus>("get_live_boost_status"),
 	/**  Whether Live System Boost is supported on this platform. */
 	isLiveBoostSupported: () => __TAURI_INVOKE<boolean>("is_live_boost_supported"),
+	listAudioSessions: () => typedError<AudioSession[], AppError>(__TAURI_INVOKE("list_audio_sessions")),
+	setSessionBoost: (sessionId: string, level: number) => typedError<null, AppError>(__TAURI_INVOKE("set_session_boost", { sessionId, level })),
+	getBoosterCapability: () => __TAURI_INVOKE<BoosterCapability>("get_booster_capability"),
 };
 
 /* Types */
@@ -91,9 +94,27 @@ export type AbPreviewResult = {
 export type AppError = { kind: "Io"; message: string } | { kind: "FFmpeg"; message: string } | { kind: "NoAudioTrack"; message: string } | { kind: "CorruptedFile"; message: string } | { kind: "InsufficientDiskSpace"; message: {
 	needed: number,
 	available: number,
-} } | { kind: "InvalidInput"; message: string } | { kind: "Cancelled" } | { kind: "NotFound"; message: string } | { kind: "Other"; message: string };
+} } | { kind: "InvalidInput"; message: string } | { kind: "Cancelled" } | { kind: "NotFound"; message: string } | { kind: "Unsupported"; message: string } | { kind: "Other"; message: string };
 
 export type AudioFormat = "mp3" | "wav" | "aac" | "m4a" | "flac" | "opus";
+
+/**  One audio session (app) visible to the OS mixer. */
+export type AudioSession = {
+	id: string,
+	name: string,
+	/**  Current volume percent (0..100 Windows, 0..150 Linux). */
+	volume: number,
+	isSystem: boolean,
+};
+
+/**  What the current OS can do for per-app volume boost. */
+export type BoosterCapability = 
+/**  Full per-session control (Windows WASAPI, Linux PulseAudio). */
+"fullTierA" | 
+/**  Can list sessions but not boost (future). */
+"readOnly" | 
+/**  Not supported (macOS). */
+"unsupported";
 
 export type BoosterJobSpec = {
 	trim: TrimSpec,

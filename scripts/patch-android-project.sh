@@ -69,24 +69,38 @@ if [ -f "$GRADLE_FILE" ] && ! grep -q "useLegacyPackaging" "$GRADLE_FILE"; then
   rm -f "$GRADLE_FILE.bak"
 fi
 
-# --- 3. Runtime media & foreground service permissions ------------------------
-if [ -f "$MANIFEST" ] && ! grep -q "READ_MEDIA_AUDIO" "$MANIFEST"; then
-  node -e '
-    const fs = require("fs");
-    const p = process.argv[1];
-    let content = fs.readFileSync(p, "utf8");
-    const perms = "\n    <uses-permission android:name=\"android.permission.READ_MEDIA_AUDIO\" />" +
-      "\n    <uses-permission android:name=\"android.permission.READ_MEDIA_VIDEO\" />" +
-      "\n    <uses-permission android:name=\"android.permission.READ_EXTERNAL_STORAGE\" android:maxSdkVersion=\"32\" />" +
-      "\n    <!-- MediaStore publishing of outputs on Android 9 and below -->" +
-      "\n    <uses-permission android:name=\"android.permission.WRITE_EXTERNAL_STORAGE\" android:maxSdkVersion=\"28\" />" +
-      "\n    <!-- Live Sound Booster AudioPlaybackCapture foreground service (No microphone permission needed) -->" +
-      "\n    <uses-permission android:name=\"android.permission.FOREGROUND_SERVICE\" />" +
-      "\n    <uses-permission android:name=\"android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION\" />";
-    content = content.replace(/<manifest[^>]*>/, "$&" + perms);
-    fs.writeFileSync(p, content);
-  ' "$MANIFEST"
-fi
+# --- 3. Runtime media & foreground service permissions (per-permission idempotent) ---
+node -e '
+  const fs = require("fs");
+  const p = process.argv[1];
+  let content = fs.readFileSync(p, "utf8");
+  const need = [];
+  // Exact tag match — plain includes() would false-positive on permission-name prefixes
+  // (e.g. FOREGROUND_SERVICE matches FOREGROUND_SERVICE_MEDIA_PROJECTION).
+  const has = (perm) =>
+    new RegExp(`<uses-permission\\s+android:name="${perm.replace(/\./g, "\\.")}"\\s*/>`).test(content);
+  const add = (perm) => { if (!has(perm)) need.push(perm); };
+  add("android.permission.READ_MEDIA_AUDIO");
+  add("android.permission.READ_MEDIA_VIDEO");
+  add("android.permission.READ_EXTERNAL_STORAGE");
+  add("android.permission.WRITE_EXTERNAL_STORAGE");
+  add("android.permission.FOREGROUND_SERVICE");
+  add("android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION");
+  add("android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK");
+  add("android.permission.MODIFY_AUDIO_SETTINGS");
+  if (need.length === 0) process.exit(0);
+  const perms =
+    (need.includes("android.permission.READ_MEDIA_AUDIO") ? "\n    <uses-permission android:name=\"android.permission.READ_MEDIA_AUDIO\" />" : "") +
+    (need.includes("android.permission.READ_MEDIA_VIDEO") ? "\n    <uses-permission android:name=\"android.permission.READ_MEDIA_VIDEO\" />" : "") +
+    (need.includes("android.permission.READ_EXTERNAL_STORAGE") ? "\n    <uses-permission android:name=\"android.permission.READ_EXTERNAL_STORAGE\" android:maxSdkVersion=\"32\" />" : "") +
+    (need.includes("android.permission.WRITE_EXTERNAL_STORAGE") ? "\n    <!-- MediaStore publishing of outputs on Android 9 and below -->\n    <uses-permission android:name=\"android.permission.WRITE_EXTERNAL_STORAGE\" android:maxSdkVersion=\"28\" />" : "") +
+    (need.includes("android.permission.FOREGROUND_SERVICE") ? "\n    <!-- Live Sound Booster AudioPlaybackCapture foreground service (No microphone permission needed) -->\n    <uses-permission android:name=\"android.permission.FOREGROUND_SERVICE\" />" : "") +
+    (need.includes("android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION") ? "\n    <uses-permission android:name=\"android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION\" />" : "") +
+    (need.includes("android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK") ? "\n    <uses-permission android:name=\"android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK\" />" : "") +
+    (need.includes("android.permission.MODIFY_AUDIO_SETTINGS") ? "\n    <uses-permission android:name=\"android.permission.MODIFY_AUDIO_SETTINGS\" />" : "");
+  content = content.replace(/<manifest[^>]*>/, (m) => m + perms);
+  fs.writeFileSync(p, content);
+' "$MANIFEST"
 
 # Service declaration for LiveSoundBoosterService & Share Sheet intent filter
 if [ -f "$MANIFEST" ] && ! grep -q "LiveSoundBoosterService" "$MANIFEST"; then

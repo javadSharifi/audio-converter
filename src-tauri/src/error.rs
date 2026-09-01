@@ -16,6 +16,7 @@ pub enum AppError {
     InvalidInput(String),
     Cancelled,
     NotFound(String),
+    Unsupported(String),
     Other(String),
 }
 
@@ -37,6 +38,7 @@ impl std::fmt::Display for AppError {
             AppError::InvalidInput(m) => write!(f, "Invalid input: {m}"),
             AppError::Cancelled => write!(f, "Cancelled"),
             AppError::NotFound(m) => write!(f, "Not found: {m}"),
+            AppError::Unsupported(m) => write!(f, "Unsupported: {m}"),
             AppError::Other(m) => write!(f, "{m}"),
         }
     }

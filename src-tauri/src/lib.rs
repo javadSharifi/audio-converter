@@ -1,4 +1,5 @@
 pub mod android_fs;
+pub mod booster;
 mod commands;
 pub mod disk;
 pub mod error;
@@ -90,6 +91,9 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         commands::set_live_boost_gain,
         commands::get_live_boost_status,
         commands::is_live_boost_supported,
+        commands::booster::list_audio_sessions,
+        commands::booster::set_session_boost,
+        commands::booster::get_booster_capability,
     ])
 }
 

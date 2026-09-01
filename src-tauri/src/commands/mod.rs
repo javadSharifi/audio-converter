@@ -3,6 +3,8 @@ use std::path::Path;
 use serde::Serialize;
 use tauri::State;
 
+pub mod booster;
+
 use crate::error::{AppError, Result};
 use crate::ffmpeg::probe;
 use crate::queue::{JobRecord, QueueManager};

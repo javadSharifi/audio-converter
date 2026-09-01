@@ -59,8 +59,8 @@ export function openAppSettings(): void {
  * Delete an Android staged input file (user removed the row / cleared the
  * list). No-op on desktop and for paths outside the app staging dir.
  */
-export function deleteStagedInput(path: string): void {
-  void commands.deleteStagedInput(path).catch(() => {});
+export function deleteStagedInput(path: string): Promise<void> {
+  return commands.deleteStagedInput(path).catch(() => {});
 }
 
 export async function probeFiles(paths: string[]): Promise<FileMeta[]> {
@@ -106,6 +106,25 @@ export async function cancelAll(): Promise<void> {
 
 export async function cancelAllJobs(): Promise<void> {
   await commands.cancelAllJobs();
+}
+
+export async function listAudioSessions(): Promise<import("../types/generated").AudioSession[]> {
+  const res = await commands.listAudioSessions();
+  if (res.status === "error") throw new Error(String((res.error as unknown as { message?: string })?.message ?? res.error));
+  return res.data;
+}
+
+export async function setSessionBoost(sessionId: string, level: number): Promise<void> {
+  const res = await commands.setSessionBoost(sessionId, level);
+  if (res.status === "error") throw new Error(String((res.error as unknown as { message?: string })?.message ?? res.error));
+}
+
+export async function getBoosterCapability(): Promise<import("../types/generated").BoosterCapability | null> {
+  try {
+    return await commands.getBoosterCapability();
+  } catch {
+    return null;
+  }
 }
 
 export async function clearFinished(): Promise<void> {
