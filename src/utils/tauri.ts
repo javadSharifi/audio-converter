@@ -108,25 +108,6 @@ export async function cancelAllJobs(): Promise<void> {
   await commands.cancelAllJobs();
 }
 
-export async function listAudioSessions(): Promise<import("../types/generated").AudioSession[]> {
-  const res = await commands.listAudioSessions();
-  if (res.status === "error") throw new Error(String((res.error as unknown as { message?: string })?.message ?? res.error));
-  return res.data;
-}
-
-export async function setSessionBoost(sessionId: string, level: number): Promise<void> {
-  const res = await commands.setSessionBoost(sessionId, level);
-  if (res.status === "error") throw new Error(String((res.error as unknown as { message?: string })?.message ?? res.error));
-}
-
-export async function getBoosterCapability(): Promise<import("../types/generated").BoosterCapability | null> {
-  try {
-    return await commands.getBoosterCapability();
-  } catch {
-    return null;
-  }
-}
-
 export async function clearFinished(): Promise<void> {
   await commands.clearFinished();
 }
@@ -202,31 +183,48 @@ export async function startSoundBoost(
   return res.data;
 }
 
-export async function startLiveBoost(gain = 1.5): Promise<void> {
-  const res = await commands.startLiveBoost(gain);
+export async function scanAudioFiles(customDirs?: string[]): Promise<import("../types").AudioTrackInfo[]> {
+  try {
+    return await commands.scanAudioFiles(customDirs ?? null);
+  } catch (err) {
+    console.warn("scanAudioFiles failed:", err);
+    return [];
+  }
+}
+
+export async function getMusicPermissionStatus(): Promise<import("../types").LibraryPermissionStatus> {
+  try {
+    return await commands.getMusicPermissionStatus();
+  } catch {
+    return "notRequired";
+  }
+}
+
+export async function deleteAudioTrack(pathOrUri: string): Promise<void> {
+  const res = await commands.deleteAudioTrack(pathOrUri);
   if (res.status === "error") {
     throw new Error(formatAppError(res.error));
   }
 }
 
-export async function stopLiveBoost(): Promise<void> {
-  const res = await commands.stopLiveBoost();
+export async function setAsRingtone(pathOrUri: string): Promise<void> {
+  const res = await commands.setAsRingtone(pathOrUri);
   if (res.status === "error") {
     throw new Error(formatAppError(res.error));
   }
 }
 
-export async function setLiveBoostGain(gain: number): Promise<void> {
-  const res = await commands.setLiveBoostGain(gain);
+export async function shareAudioTrack(
+  pathOrUri: string,
+  title: string,
+  mimeType: string,
+): Promise<void> {
+  const res = await commands.shareAudioTrack(pathOrUri, title, mimeType);
   if (res.status === "error") {
     throw new Error(formatAppError(res.error));
   }
 }
 
-export async function getLiveBoostStatus(): Promise<import("../types").LiveBoostStatus> {
-  return commands.getLiveBoostStatus();
-}
 
-export async function isLiveBoostSupported(): Promise<boolean> {
-  return commands.isLiveBoostSupported();
-}
+
+

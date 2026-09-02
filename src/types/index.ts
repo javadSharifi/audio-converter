@@ -14,7 +14,8 @@ import type {
   VolumeAnalysis,
   AbPreviewResult,
   BoosterJobSpec,
-  LiveBoostStatus,
+  AudioTrackInfo,
+  LibraryPermissionStatus,
 } from "./generated";
 
 export type {
@@ -29,7 +30,8 @@ export type {
   VolumeAnalysis,
   AbPreviewResult,
   BoosterJobSpec,
-  LiveBoostStatus,
+  AudioTrackInfo,
+  LibraryPermissionStatus,
 };
 
 export type ConversionOptions = GeneratedConversionOptions;
@@ -40,6 +42,29 @@ export type AppSettings = GeneratedSettings & {
   language: "en" | "fa";
   theme: "light" | "dark" | "system";
 };
+
+export type AppTool = "converter" | "player";
+
+export type MusicSortOption = "newest" | "oldest" | "liked" | "title";
+
+export interface CustomAlbum {
+  id: string;
+  name: string;
+  trackKeys: string[];
+  createdAtMs: number;
+  updatedAtMs: number;
+}
+
+export interface AlbumItem {
+  id: string;
+  name: string;
+  artist?: string | null;
+  isCustom: boolean;
+  tracks: AudioTrackInfo[];
+  coverTrack: AudioTrackInfo | null;
+  totalDurationSecs: number;
+  trackCount: number;
+}
 
 export const LOSSY_FORMATS: AudioFormat[] = ["mp3", "aac", "m4a", "opus"];
 export const LOSSLESS_FORMATS: AudioFormat[] = ["wav", "flac"];

@@ -73,11 +73,4 @@ export interface FileBoosterState {
   exportError: string | null;
 }
 
-export interface LiveBoosterState {
-  isRunning: boolean;
-  gain: number;
-  isSupported: boolean;
-  consentSheetOpen: boolean;
-  hasSeenExplainer: boolean;
-  error: string | null;
-}
+

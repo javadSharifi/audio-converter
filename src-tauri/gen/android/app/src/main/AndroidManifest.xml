@@ -6,13 +6,12 @@
     <!-- MediaStore publishing of outputs on Android 9 and below -->
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
     <uses-permission android:name="android.permission.INTERNET" />
-    <!-- Live Sound Booster AudioPlaybackCapture foreground service (No microphone permission needed) -->
+    <!-- Lock Screen & Media Notifications Permissions -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
-    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
-
-    <!-- AndroidTV support -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+<!-- AndroidTV support -->
     <uses-feature android:name="android.software.leanback" android:required="false" />
 
     <application android:extractNativeLibs="true"
@@ -46,13 +45,7 @@
                 <data android:mimeType="video/*" />
             </intent-filter>
         </activity>
-
-        <service
-            android:name=".LiveSoundBoosterService"
-            android:foregroundServiceType="mediaProjection"
-            android:exported="false" />
-
-        <provider
+<provider
           android:name="androidx.core.content.FileProvider"
           android:authorities="${applicationId}.fileprovider"
           android:exported="false"

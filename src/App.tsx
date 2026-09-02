@@ -1,12 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { HeaderBar } from "./components/HeaderBar";
-import { BottomNavigation, type AppTab } from "./components/BottomNavigation";
 import { DropZone } from "./components/DropZone";
 import { FileList } from "./components/FileList";
 import { OptionsPanel } from "./components/OptionsPanel";
 import { JobsPanel } from "./components/JobsPanel";
+import { MusicPlayerView } from "./components/music-player/MusicPlayerView";
 import { Toasts } from "./components/Toasts";
-import { BoosterPanel } from "./components/BoosterPanel";
 import { useAppStore } from "./stores/useAppStore";
 import { translate } from "./i18n";
 import { useTheme, useDirection, resolveTheme } from "./hooks/useTheme";
@@ -73,9 +72,9 @@ function StartBar(): React.JSX.Element {
 }
 
 export default function App(): React.JSX.Element {
-  const [activeTab, setActiveTab] = useState<AppTab>("converter");
   const lang = useAppStore((s) => s.lang);
   const theme = useAppStore((s) => s.theme);
+  const activeTool = useAppStore((s) => s.activeTool);
   const files = useAppStore((s) => s.files);
   const addPaths = useAppStore((s) => s.addPaths);
   const loadSettings = useAppStore((s) => s.loadSettings);
@@ -131,7 +130,6 @@ export default function App(): React.JSX.Element {
       const customEvent = e as CustomEvent<{ uri?: string }>;
       const uri = customEvent.detail?.uri;
       if (uri) {
-        setActiveTab("converter");
         void addPaths([uri]);
       }
     };
@@ -178,47 +176,50 @@ export default function App(): React.JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Synchronize document title with active tool
+  useEffect(() => {
+    document.title =
+      activeTool === "player"
+        ? translate(lang, "musicPlayerTitle")
+        : translate(lang, "appTitle");
+  }, [activeTool, lang]);
+
   useTheme();
   useDirection(lang);
 
+  const isConverter = activeTool === "converter";
+
   return (
-    <div className="relative flex h-screen flex-col overflow-hidden bg-zinc-100/90 text-zinc-900 select-none dark:bg-[#09090b] dark:text-zinc-100">
+    <div className="relative flex h-screen max-w-full flex-col overflow-hidden overflow-x-hidden bg-zinc-100/90 text-zinc-900 select-none dark:bg-[#09090b] dark:text-zinc-100">
       <HeaderBar />
 
       <main
-        className={`relative z-10 mx-auto flex w-full max-w-4xl flex-1 flex-col gap-4 overflow-y-auto px-4 py-5 md:gap-5 md:px-6 ${
-          activeTab === "converter" && files.length > 0 ? "pb-36" : "pb-24"
+        className={`relative z-10 mx-auto flex w-full max-w-4xl flex-1 flex-col gap-4 overflow-x-hidden px-4 pt-4 md:gap-5 md:px-6 min-h-0 ${
+          isConverter
+            ? `overflow-y-auto ${files.length > 0 ? "pb-36" : "pb-24"} py-5`
+            : "overflow-hidden pb-4"
         }`}
       >
-        {activeTab === "converter" && (
+        {isConverter ? (
           <>
             {files.length === 0 && <DropZone />}
             <FileList />
             <OptionsPanel />
             <JobsPanel />
           </>
-        )}
-
-        {activeTab === "live_booster" && (
-          <div className="flex flex-1 items-center justify-center py-6 w-full">
-            <div className="w-full max-w-xl">
-              <BoosterPanel />
-            </div>
-          </div>
+        ) : (
+          <MusicPlayerView />
         )}
       </main>
 
-      {/* Converter Start Bar (docked cleanly above Bottom Navigation) */}
-      {activeTab === "converter" && files.length > 0 && (
-        <div className="fixed bottom-16 left-0 right-0 z-30 border-t border-black/[0.06] bg-white/95 backdrop-blur-md px-4 py-3 shadow-sm dark:border-white/[0.06] dark:bg-zinc-900/95 md:px-6">
+      {/* Converter Start Bar */}
+      {isConverter && files.length > 0 && (
+        <div className="fixed bottom-0 left-0 right-0 z-30 border-t border-black/[0.06] bg-white/95 backdrop-blur-md px-4 py-3 shadow-sm dark:border-white/[0.06] dark:bg-zinc-900/95 md:px-6">
           <div className="mx-auto w-full max-w-4xl">
             <StartBar />
           </div>
         </div>
       )}
-
-      {/* Bottom Navigation Bar */}
-      <BottomNavigation activeTab={activeTab} onSelectTab={setActiveTab} />
 
       <Toasts />
 

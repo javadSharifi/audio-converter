@@ -1,10 +1,10 @@
 pub mod android_fs;
-pub mod booster;
 mod commands;
 pub mod disk;
 pub mod error;
 pub mod ffmpeg;
 pub mod logger;
+pub mod music_library;
 pub mod processing;
 pub mod queue;
 pub mod settings;
@@ -86,14 +86,11 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         commands::analyze_audio_volume,
         commands::generate_ab_preview,
         commands::start_sound_boost,
-        commands::start_live_boost,
-        commands::stop_live_boost,
-        commands::set_live_boost_gain,
-        commands::get_live_boost_status,
-        commands::is_live_boost_supported,
-        commands::booster::list_audio_sessions,
-        commands::booster::set_session_boost,
-        commands::booster::get_booster_capability,
+        commands::scan_audio_files,
+        commands::get_music_permission_status,
+        commands::delete_audio_track,
+        commands::set_as_ringtone,
+        commands::share_audio_track,
     ])
 }
 

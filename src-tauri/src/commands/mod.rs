@@ -3,8 +3,6 @@ use std::path::Path;
 use serde::Serialize;
 use tauri::State;
 
-pub mod booster;
-
 use crate::error::{AppError, Result};
 use crate::ffmpeg::probe;
 use crate::queue::{JobRecord, QueueManager};
@@ -465,7 +463,7 @@ pub fn log_frontend(level: String, msg: String) {
     crate::logger::log(&level, &format!("[FRONTEND] {msg}"));
 }
 
-use crate::types::{AbPreviewResult, BoosterJobSpec, BoosterPreset, LiveBoostStatus, VolumeAnalysis};
+use crate::types::{AbPreviewResult, BoosterJobSpec, BoosterPreset, VolumeAnalysis};
 
 /// Volume analysis for a media file (peak dB, mean dB, suggested gain).
 #[tauri::command]
@@ -567,86 +565,64 @@ pub async fn start_sound_boost(
     Ok(queue.enqueue_boost(items, options, conc))
 }
 
-/// Start Live System Boost (Android API 29+ only, no-op on desktop).
+pub use crate::music_library::models::{AudioTrackInfo, LibraryPermissionStatus};
+
+/// Scan system audio files across platforms (MediaStore on Android, standard music/user directories on desktop).
+/// Sorted by default by latest date added (created/modified timestamp descending).
 #[tauri::command]
 #[specta::specta]
-pub fn start_live_boost(gain: f64) -> Result<()> {
-    #[cfg(target_os = "android")]
-    {
-        crate::android_fs::call_static_void_float("startLiveBoost", gain as f32)
-            .map_err(AppError::Other)?;
-        return Ok(());
-    }
-    #[cfg(not(target_os = "android"))]
-    {
-        let _ = gain;
-        Err(AppError::Other("Live system boost is only supported on Android".into()))
-    }
+pub async fn scan_audio_files(custom_dirs: Option<Vec<String>>) -> Vec<AudioTrackInfo> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::music_library::scan_music_library(custom_dirs)
+    })
+    .await
+    .unwrap_or_default()
 }
 
-/// Stop Live System Boost.
+/// Check music permission status across platforms.
 #[tauri::command]
 #[specta::specta]
-pub fn stop_live_boost() -> Result<()> {
-    #[cfg(target_os = "android")]
-    {
-        crate::android_fs::call_static_void("stopLiveBoost").map_err(AppError::Other)?;
-        return Ok(());
-    }
-    #[cfg(not(target_os = "android"))]
-    {
-        Ok(())
-    }
+pub fn get_music_permission_status() -> LibraryPermissionStatus {
+    crate::music_library::get_music_permission_status()
 }
 
-/// Dynamically update gain of Live System Boost.
+/// Delete audio track from the device library.
 #[tauri::command]
 #[specta::specta]
-pub fn set_live_boost_gain(gain: f64) -> Result<()> {
-    #[cfg(target_os = "android")]
-    {
-        crate::android_fs::call_static_void_float("setLiveBoostGain", gain as f32)
-            .map_err(AppError::Other)?;
-        return Ok(());
-    }
-    #[cfg(not(target_os = "android"))]
-    {
-        let _ = gain;
-        Ok(())
-    }
+pub async fn delete_audio_track(path_or_uri: String) -> Result<()> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::music_library::delete_audio_track(&path_or_uri)
+            .map_err(|e| AppError::Other(e))
+    })
+    .await
+    .map_err(|e| AppError::Other(format!("Task failed: {e}")))?
 }
 
-/// Check status of Live System Boost.
+/// Set track as default ringtone (Android).
 #[tauri::command]
 #[specta::specta]
-pub fn get_live_boost_status() -> LiveBoostStatus {
-    #[cfg(target_os = "android")]
-    {
-        let is_running = crate::android_fs::call_static_bool("isLiveBoostRunning");
-        let is_supported = crate::android_fs::call_static_bool("isLiveBoostSupported");
-        return LiveBoostStatus {
-            is_running,
-            current_gain: 1.5,
-            is_supported,
-        };
-    }
-    #[cfg(not(target_os = "android"))]
-    {
-        LiveBoostStatus {
-            is_running: false,
-            current_gain: 1.0,
-            is_supported: false,
-        }
-    }
+pub async fn set_as_ringtone(path_or_uri: String) -> Result<()> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::music_library::set_as_ringtone(&path_or_uri)
+            .map_err(|e| AppError::Other(e))
+    })
+    .await
+    .map_err(|e| AppError::Other(format!("Task failed: {e}")))?
 }
 
-/// Whether Live System Boost is supported on this platform.
+/// Share track via system share sheet.
 #[tauri::command]
 #[specta::specta]
-pub fn is_live_boost_supported() -> bool {
-    #[cfg(target_os = "android")]
-    return crate::android_fs::call_static_bool("isLiveBoostSupported");
-    #[cfg(not(target_os = "android"))]
-    false
+pub async fn share_audio_track(path_or_uri: String, title: String, mime_type: String) -> Result<()> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::music_library::share_audio_track(&path_or_uri, &title, &mime_type)
+            .map_err(|e| AppError::Other(e))
+    })
+    .await
+    .map_err(|e| AppError::Other(format!("Task failed: {e}")))?
 }
+
+
+
+
 

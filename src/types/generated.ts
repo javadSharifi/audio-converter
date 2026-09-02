@@ -65,19 +65,19 @@ export const commands = {
 	generateAbPreview: (path: string, preset: BoosterPreset, manualGainPercent: number | null, startTimeSecs: number | null, durationSecs: number | null) => typedError<AbPreviewResult, AppError>(__TAURI_INVOKE("generate_ab_preview", { path, preset, manualGainPercent, startTimeSecs, durationSecs })),
 	/**  Enqueue sound booster batch conversion. */
 	startSoundBoost: (items: BoosterJobSpec[], options: ConversionOptions, concurrency: number | null) => typedError<string[], AppError>(__TAURI_INVOKE("start_sound_boost", { items, options, concurrency })),
-	/**  Start Live System Boost (Android API 29+ only, no-op on desktop). */
-	startLiveBoost: (gain: number | null) => typedError<null, AppError>(__TAURI_INVOKE("start_live_boost", { gain })),
-	/**  Stop Live System Boost. */
-	stopLiveBoost: () => typedError<null, AppError>(__TAURI_INVOKE("stop_live_boost")),
-	/**  Dynamically update gain of Live System Boost. */
-	setLiveBoostGain: (gain: number | null) => typedError<null, AppError>(__TAURI_INVOKE("set_live_boost_gain", { gain })),
-	/**  Check status of Live System Boost. */
-	getLiveBoostStatus: () => __TAURI_INVOKE<LiveBoostStatus>("get_live_boost_status"),
-	/**  Whether Live System Boost is supported on this platform. */
-	isLiveBoostSupported: () => __TAURI_INVOKE<boolean>("is_live_boost_supported"),
-	listAudioSessions: () => typedError<AudioSession[], AppError>(__TAURI_INVOKE("list_audio_sessions")),
-	setSessionBoost: (sessionId: string, level: number) => typedError<null, AppError>(__TAURI_INVOKE("set_session_boost", { sessionId, level })),
-	getBoosterCapability: () => __TAURI_INVOKE<BoosterCapability>("get_booster_capability"),
+	/**
+	 *  Scan system audio files across platforms (MediaStore on Android, standard music/user directories on desktop).
+	 *  Sorted by default by latest date added (created/modified timestamp descending).
+	 */
+	scanAudioFiles: (customDirs: string[] | null) => __TAURI_INVOKE<AudioTrackInfo[]>("scan_audio_files", { customDirs }),
+	/**  Check music permission status across platforms. */
+	getMusicPermissionStatus: () => __TAURI_INVOKE<LibraryPermissionStatus>("get_music_permission_status"),
+	/**  Delete audio track from the device library. */
+	deleteAudioTrack: (pathOrUri: string) => typedError<null, AppError>(__TAURI_INVOKE("delete_audio_track", { pathOrUri })),
+	/**  Set track as default ringtone (Android). */
+	setAsRingtone: (pathOrUri: string) => typedError<null, AppError>(__TAURI_INVOKE("set_as_ringtone", { pathOrUri })),
+	/**  Share track via system share sheet. */
+	shareAudioTrack: (pathOrUri: string, title: string, mimeType: string) => typedError<null, AppError>(__TAURI_INVOKE("share_audio_track", { pathOrUri, title, mimeType })),
 };
 
 /* Types */
@@ -98,23 +98,22 @@ export type AppError = { kind: "Io"; message: string } | { kind: "FFmpeg"; messa
 
 export type AudioFormat = "mp3" | "wav" | "aac" | "m4a" | "flac" | "opus";
 
-/**  One audio session (app) visible to the OS mixer. */
-export type AudioSession = {
+export type AudioTrackInfo = {
 	id: string,
+	uri: string,
+	path: string | null,
 	name: string,
-	/**  Current volume percent (0..100 Windows, 0..150 Linux). */
-	volume: number,
-	isSystem: boolean,
+	title: string | null,
+	artist: string | null,
+	album: string | null,
+	durationSecs: number | null,
+	sizeBytes: number,
+	modifiedTimestampMs: number,
+	createdTimestampMs: number,
+	format: string,
+	mimeType: string,
+	coverUrl: string | null,
 };
-
-/**  What the current OS can do for per-app volume boost. */
-export type BoosterCapability = 
-/**  Full per-session control (Windows WASAPI, Linux PulseAudio). */
-"fullTierA" | 
-/**  Can list sessions but not boost (future). */
-"readOnly" | 
-/**  Not supported (macOS). */
-"unsupported";
 
 export type BoosterJobSpec = {
 	trim: TrimSpec,
@@ -188,11 +187,7 @@ export type JobRecord = {
 
 export type JobStatus = "waiting" | "processing" | "completed" | "failed" | "cancelled";
 
-export type LiveBoostStatus = {
-	isRunning: boolean,
-	currentGain: number | null,
-	isSupported: boolean,
-};
+export type LibraryPermissionStatus = "granted" | "denied" | "permanentlyDenied" | "restricted" | "notRequired";
 
 /**  Where output files are written. */
 export type OutputMode = 

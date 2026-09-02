@@ -276,14 +276,6 @@ pub struct BoosterJobSpec {
     pub manual_gain_percent: Option<f64>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
-#[serde(rename_all = "camelCase")]
-pub struct LiveBoostStatus {
-    pub is_running: bool,
-    pub current_gain: f64,
-    pub is_supported: bool,
-}
-
 /// Emitted to frontend on every job state change.
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]

@@ -5,7 +5,10 @@ type Resolved = "light" | "dark";
 
 export function resolveTheme(pref: "light" | "dark" | "system"): Resolved {
   if (pref !== "system") return pref;
-  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  if (typeof window !== "undefined" && typeof window.matchMedia === "function") {
+    return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  }
+  return "dark";
 }
 
 /** Applies the theme to <html> and reacts to OS changes in system mode. */
@@ -20,9 +23,11 @@ export function useTheme(): void {
     };
     apply();
     if (theme !== "system") return;
-    const mq = window.matchMedia("(prefers-color-scheme: dark)");
-    mq.addEventListener("change", apply);
-    return () => mq.removeEventListener("change", apply);
+    if (typeof window !== "undefined" && typeof window.matchMedia === "function") {
+      const mq = window.matchMedia("(prefers-color-scheme: dark)");
+      mq.addEventListener?.("change", apply);
+      return () => mq.removeEventListener?.("change", apply);
+    }
   }, [theme]);
 }
 

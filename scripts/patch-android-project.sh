@@ -69,7 +69,7 @@ if [ -f "$GRADLE_FILE" ] && ! grep -q "useLegacyPackaging" "$GRADLE_FILE"; then
   rm -f "$GRADLE_FILE.bak"
 fi
 
-# --- 3. Runtime media & foreground service permissions (per-permission idempotent) ---
+# --- 3. Runtime media permissions (per-permission idempotent) ---
 node -e '
   const fs = require("fs");
   const p = process.argv[1];
@@ -84,51 +84,36 @@ node -e '
   add("android.permission.READ_MEDIA_VIDEO");
   add("android.permission.READ_EXTERNAL_STORAGE");
   add("android.permission.WRITE_EXTERNAL_STORAGE");
-  add("android.permission.FOREGROUND_SERVICE");
-  add("android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION");
-  add("android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK");
-  add("android.permission.MODIFY_AUDIO_SETTINGS");
   if (need.length === 0) process.exit(0);
   const perms =
     (need.includes("android.permission.READ_MEDIA_AUDIO") ? "\n    <uses-permission android:name=\"android.permission.READ_MEDIA_AUDIO\" />" : "") +
     (need.includes("android.permission.READ_MEDIA_VIDEO") ? "\n    <uses-permission android:name=\"android.permission.READ_MEDIA_VIDEO\" />" : "") +
     (need.includes("android.permission.READ_EXTERNAL_STORAGE") ? "\n    <uses-permission android:name=\"android.permission.READ_EXTERNAL_STORAGE\" android:maxSdkVersion=\"32\" />" : "") +
     (need.includes("android.permission.WRITE_EXTERNAL_STORAGE") ? "\n    <!-- MediaStore publishing of outputs on Android 9 and below -->\n    <uses-permission android:name=\"android.permission.WRITE_EXTERNAL_STORAGE\" android:maxSdkVersion=\"28\" />" : "") +
-    (need.includes("android.permission.FOREGROUND_SERVICE") ? "\n    <!-- Live Sound Booster AudioPlaybackCapture foreground service (No microphone permission needed) -->\n    <uses-permission android:name=\"android.permission.FOREGROUND_SERVICE\" />" : "") +
-    (need.includes("android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION") ? "\n    <uses-permission android:name=\"android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION\" />" : "") +
-    (need.includes("android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK") ? "\n    <uses-permission android:name=\"android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK\" />" : "") +
-    (need.includes("android.permission.MODIFY_AUDIO_SETTINGS") ? "\n    <uses-permission android:name=\"android.permission.MODIFY_AUDIO_SETTINGS\" />" : "");
+
   content = content.replace(/<manifest[^>]*>/, (m) => m + perms);
   fs.writeFileSync(p, content);
 ' "$MANIFEST"
 
-# Service declaration for LiveSoundBoosterService & Share Sheet intent filter
-if [ -f "$MANIFEST" ] && ! grep -q "LiveSoundBoosterService" "$MANIFEST"; then
+# Share Sheet intent filter (audio/video)
+if [ -f "$MANIFEST" ] && ! grep -q "android.intent.action.SEND" "$MANIFEST"; then
   node -e '
     const fs = require("fs");
     const p = process.argv[1];
     let content = fs.readFileSync(p, "utf8");
-    const serviceTag = "\n        <service" +
-      "\n            android:name=\".LiveSoundBoosterService\"" +
-      "\n            android:foregroundServiceType=\"mediaProjection\"" +
-      "\n            android:exported=\"false\" />";
-    content = content.replace(/<\/application>/, serviceTag + "\n    $&");
-
-    if (!content.includes("android.intent.action.SEND")) {
-      const shareFilter = "\n            <intent-filter>" +
-        "\n                <action android:name=\"android.intent.action.SEND\" />" +
-        "\n                <category android:name=\"android.intent.category.DEFAULT\" />" +
-        "\n                <data android:mimeType=\"audio/*\" />" +
-        "\n                <data android:mimeType=\"video/*\" />" +
-        "\n            </intent-filter>" +
-        "\n            <intent-filter>" +
-        "\n                <action android:name=\"android.intent.action.SEND_MULTIPLE\" />" +
-        "\n                <category android:name=\"android.intent.category.DEFAULT\" />" +
-        "\n                <data android:mimeType=\"audio/*\" />" +
-        "\n                <data android:mimeType=\"video/*\" />" +
-        "\n            </intent-filter>";
-      content = content.replace(/<\/activity>/, shareFilter + "\n        $&");
-    }
+    const shareFilter = "\n            <intent-filter>" +
+      "\n                <action android:name=\"android.intent.action.SEND\" />" +
+      "\n                <category android:name=\"android.intent.category.DEFAULT\" />" +
+      "\n                <data android:mimeType=\"audio/*\" />" +
+      "\n                <data android:mimeType=\"video/*\" />" +
+      "\n            </intent-filter>" +
+      "\n            <intent-filter>" +
+      "\n                <action android:name=\"android.intent.action.SEND_MULTIPLE\" />" +
+      "\n                <category android:name=\"android.intent.category.DEFAULT\" />" +
+      "\n                <data android:mimeType=\"audio/*\" />" +
+      "\n                <data android:mimeType=\"video/*\" />" +
+      "\n            </intent-filter>";
+    content = content.replace(/<\/activity>/, shareFilter + "\n        $&");
     fs.writeFileSync(p, content);
   ' "$MANIFEST"
 fi
@@ -137,9 +122,6 @@ fi
 mkdir -p "$GEN/app/src/main/java/com/audioconverter/app"
 if [ -f "$ROOT/src-tauri/android/MainActivity.kt" ]; then
   cp -f "$ROOT/src-tauri/android/MainActivity.kt" "$GEN/app/src/main/java/com/audioconverter/app/MainActivity.kt"
-fi
-if [ -f "$ROOT/src-tauri/android/LiveSoundBoosterService.kt" ]; then
-  cp -f "$ROOT/src-tauri/android/LiveSoundBoosterService.kt" "$GEN/app/src/main/java/com/audioconverter/app/LiveSoundBoosterService.kt"
 fi
 
 cat > "$GEN/app/proguard-rules.pro" << 'EOF'
@@ -158,12 +140,6 @@ cat > "$GEN/app/proguard-rules.pro" << 'EOF'
 }
 -keepclassmembers class com.audioconverter.app.MainActivity$Companion {
     public <methods>;
-    *;
-}
--keep class com.audioconverter.app.LiveSoundBoosterService {
-    *;
-}
--keep class com.audioconverter.app.LiveSoundBoosterService$Companion {
     *;
 }
 -keepclasseswithmembers class * {

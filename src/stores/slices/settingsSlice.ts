@@ -1,16 +1,30 @@
 import type { StateCreator } from "zustand";
-import type { AppSettings, ConversionOptions } from "../../types";
+import type { AppSettings, ConversionOptions, AppTool } from "../../types";
 import type { Lang } from "../../i18n";
 import type { ToastSlice } from "./toastSlice";
 import { isAndroid } from "../../utils/platform";
 import * as api from "../../utils/tauri";
+
+function getInitialActiveTool(): AppTool {
+  try {
+    if (typeof localStorage !== "undefined") {
+      const stored = localStorage.getItem("active-tool");
+      if (stored === "player" || stored === "converter") {
+        return stored;
+      }
+    }
+  } catch {}
+  return "converter";
+}
 
 export interface SettingsSlice {
   settings: AppSettings | null;
   options: ConversionOptions;
   lang: Lang;
   theme: "light" | "dark" | "system";
+  activeTool: AppTool;
 
+  setActiveTool: (tool: AppTool) => void;
   updateOptions: (patch: Partial<ConversionOptions>) => void;
   loadSettings: () => Promise<void>;
   updateSettings: (patch: Partial<AppSettings>) => void;
@@ -45,6 +59,16 @@ export const createSettingsSlice: StateCreator<
   options: defaultOptions,
   lang: "en",
   theme: "system",
+  activeTool: getInitialActiveTool(),
+
+  setActiveTool(tool) {
+    try {
+      if (typeof localStorage !== "undefined") {
+        localStorage.setItem("active-tool", tool);
+      }
+    } catch {}
+    set({ activeTool: tool });
+  },
 
   updateOptions(patch) {
     set((s) => ({ options: { ...s.options, ...patch } }));

@@ -1,13 +1,16 @@
 package com.audioconverter.app
 
 import android.Manifest
+import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.media.RingtoneManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.OpenableColumns
+import android.provider.Settings
 import android.system.Os
 import android.util.Log
 import android.widget.Toast
@@ -88,30 +91,6 @@ class MainActivity : TauriActivity() {
     super.onNewIntent(intent)
     setIntent(intent)
     handleIncomingShareIntent(intent)
-  }
-
-  @Deprecated("Deprecated in Java")
-  override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-    super.onActivityResult(requestCode, resultCode, data)
-    if (requestCode == MEDIA_PROJECTION_REQ_CODE) {
-      if (resultCode == android.app.Activity.RESULT_OK && data != null) {
-        val serviceIntent = Intent(this, LiveSoundBoosterService::class.java).apply {
-          action = LiveSoundBoosterService.ACTION_START
-          putExtra(LiveSoundBoosterService.EXTRA_RESULT_CODE, resultCode)
-          putExtra(LiveSoundBoosterService.EXTRA_DATA_INTENT, data)
-          putExtra(LiveSoundBoosterService.EXTRA_GAIN, pendingLiveBoostGain)
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-          startForegroundService(serviceIntent)
-        } else {
-          startService(serviceIntent)
-        }
-        Log.i(TAG, "MediaProjection permission granted -> LiveSoundBoosterService started")
-      } else {
-        Log.w(TAG, "MediaProjection permission cancelled by user")
-        notifyLiveBoostState(false)
-      }
-    }
   }
 
   private fun handleIncomingShareIntent(intent: Intent?) {
@@ -202,14 +181,9 @@ class MainActivity : TauriActivity() {
   companion object {
     private const val TAG = "AudioConverter"
     private const val PERMISSION_REQ_CODE = 1001
-    private const val MEDIA_PROJECTION_REQ_CODE = 2002
     private const val BUFFER_SIZE = 64 * 1024 // 64 KB buffer for fast stream transfers
     private const val SAFETY_MARGIN_BYTES = 50L * 1024 * 1024 // 50 MB safety margin
-
-    @Volatile
-    var pendingLiveBoostGain: Float = 1.5f
-
-    @Volatile
+@Volatile
     var lastSharedUri: String? = null
 
     init {
@@ -283,87 +257,6 @@ class MainActivity : TauriActivity() {
         Log.w(TAG, "openAppSettings failed", t)
       }
     }
-
-    @JvmStatic
-    fun startLiveBoost(gain: Float) {
-      val act = instance ?: return
-      if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
-        Log.w(TAG, "AudioPlaybackCapture is not supported on Android < 10")
-        return
-      }
-      pendingLiveBoostGain = gain
-      try {
-        val mgr = act.getSystemService(android.content.Context.MEDIA_PROJECTION_SERVICE) as android.media.projection.MediaProjectionManager
-        act.startActivityForResult(mgr.createScreenCaptureIntent(), MEDIA_PROJECTION_REQ_CODE)
-      } catch (t: Throwable) {
-        Log.e(TAG, "Failed to start MediaProjection consent intent", t)
-      }
-    }
-
-    @JvmStatic
-    fun stopLiveBoost() {
-      val ctx = appContext ?: instance?.applicationContext ?: return
-      try {
-        val intent = android.content.Intent(ctx, LiveSoundBoosterService::class.java).apply {
-          action = LiveSoundBoosterService.ACTION_STOP
-        }
-        ctx.startService(intent)
-      } catch (t: Throwable) {
-        Log.w(TAG, "Failed to stop LiveSoundBoosterService", t)
-      }
-    }
-
-    @JvmStatic
-    fun setLiveBoostGain(gain: Float) {
-      val ctx = appContext ?: instance?.applicationContext ?: return
-      pendingLiveBoostGain = gain
-      try {
-        val intent = android.content.Intent(ctx, LiveSoundBoosterService::class.java).apply {
-          action = LiveSoundBoosterService.ACTION_UPDATE_GAIN
-          putExtra(LiveSoundBoosterService.EXTRA_GAIN, gain)
-        }
-        ctx.startService(intent)
-      } catch (t: Throwable) {
-        Log.w(TAG, "Failed to update LiveSoundBoosterService gain", t)
-      }
-    }
-
-    private fun findWebView(view: android.view.View?): android.webkit.WebView? {
-      if (view == null) return null
-      if (view is android.webkit.WebView) return view
-      if (view is android.view.ViewGroup) {
-        for (i in 0 until view.childCount) {
-          val found = findWebView(view.getChildAt(i))
-          if (found != null) return found
-        }
-      }
-      return null
-    }
-
-    @JvmStatic
-    fun notifyLiveBoostState(running: Boolean) {
-      val act = instance ?: return
-      act.runOnUiThread {
-        try {
-          val webView = findWebView(act.window.decorView)
-          webView?.evaluateJavascript(
-            "window.dispatchEvent(new CustomEvent('ac:live-boost-state', { detail: { isRunning: $running } }));",
-            null
-          )
-        } catch (t: Throwable) {
-          Log.w(TAG, "Failed to notify webview of live boost state", t)
-        }
-      }
-    }
-
-    @JvmStatic
-    fun isLiveBoostRunning(): Boolean {
-      return LiveSoundBoosterService.isServiceRunning
-    }
-
-    @JvmStatic
-    fun isLiveBoostSupported(): Boolean {
-      return Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
     }
 
     /**
@@ -555,6 +448,111 @@ class MainActivity : TauriActivity() {
     }
 
     @JvmStatic
+    fun checkMusicPermission(): String {
+      val context = appContext ?: instance?.applicationContext ?: return "granted"
+      val permission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        Manifest.permission.READ_MEDIA_AUDIO
+      } else {
+        Manifest.permission.READ_EXTERNAL_STORAGE
+      }
+      return when {
+        ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED -> "granted"
+        instance?.let { ActivityCompat.shouldShowRequestPermissionRationale(it, permission) } == true -> "denied"
+        else -> "permanently_denied"
+      }
+    }
+
+    @JvmStatic
+    fun queryMediaStoreMusic(): String {
+      val context = appContext ?: instance?.applicationContext ?: return "[]"
+      val resolver = instance?.contentResolver ?: context.contentResolver
+      val tracks = ArrayList<String>()
+
+      val projection = arrayOf(
+        android.provider.MediaStore.Audio.Media._ID,
+        android.provider.MediaStore.Audio.Media.TITLE,
+        android.provider.MediaStore.Audio.Media.ARTIST,
+        android.provider.MediaStore.Audio.Media.ALBUM,
+        android.provider.MediaStore.Audio.Media.DURATION,
+        android.provider.MediaStore.Audio.Media.SIZE,
+        android.provider.MediaStore.Audio.Media.MIME_TYPE,
+        android.provider.MediaStore.Audio.Media.DISPLAY_NAME,
+        android.provider.MediaStore.Audio.Media.DATE_ADDED,
+        android.provider.MediaStore.Audio.Media.DATE_MODIFIED,
+        android.provider.MediaStore.Audio.Media.ALBUM_ID
+      )
+
+      val selection = "${android.provider.MediaStore.Audio.Media.IS_MUSIC} != 0"
+      val sortOrder = "${android.provider.MediaStore.Audio.Media.DATE_ADDED} DESC"
+
+      try {
+        resolver.query(
+          android.provider.MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+          projection,
+          selection,
+          null,
+          sortOrder
+        )?.use { cursor ->
+          val idCol = cursor.getColumnIndexOrThrow(android.provider.MediaStore.Audio.Media._ID)
+          val titleCol = cursor.getColumnIndex(android.provider.MediaStore.Audio.Media.TITLE)
+          val artistCol = cursor.getColumnIndex(android.provider.MediaStore.Audio.Media.ARTIST)
+          val albumCol = cursor.getColumnIndex(android.provider.MediaStore.Audio.Media.ALBUM)
+          val durCol = cursor.getColumnIndex(android.provider.MediaStore.Audio.Media.DURATION)
+          val sizeCol = cursor.getColumnIndex(android.provider.MediaStore.Audio.Media.SIZE)
+          val mimeCol = cursor.getColumnIndex(android.provider.MediaStore.Audio.Media.MIME_TYPE)
+          val nameCol = cursor.getColumnIndex(android.provider.MediaStore.Audio.Media.DISPLAY_NAME)
+          val addedCol = cursor.getColumnIndex(android.provider.MediaStore.Audio.Media.DATE_ADDED)
+          val modCol = cursor.getColumnIndex(android.provider.MediaStore.Audio.Media.DATE_MODIFIED)
+          val albumIdCol = cursor.getColumnIndex(android.provider.MediaStore.Audio.Media.ALBUM_ID)
+
+          while (cursor.moveToNext()) {
+            val id = cursor.getLong(idCol)
+            val uri = android.content.ContentUris.withAppendedId(
+              android.provider.MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+              id
+            ).toString()
+
+            val title = if (titleCol >= 0) cursor.getString(titleCol) else null
+            val artist = if (artistCol >= 0) cursor.getString(artistCol) else null
+            val album = if (albumCol >= 0) cursor.getString(albumCol) else null
+            val dur = if (durCol >= 0) cursor.getLong(durCol) else 0L
+            val size = if (sizeCol >= 0) cursor.getLong(sizeCol) else 0L
+            val mime = if (mimeCol >= 0) cursor.getString(mimeCol) ?: "audio/mpeg" else "audio/mpeg"
+            val name = if (nameCol >= 0) cursor.getString(nameCol) ?: "Track $id" else "Track $id"
+            val added = if (addedCol >= 0) cursor.getLong(addedCol) * 1000L else 0L
+            val mod = if (modCol >= 0) cursor.getLong(modCol) * 1000L else added
+            val albumId = if (albumIdCol >= 0) cursor.getLong(albumIdCol) else -1L
+            val coverUri = if (albumId > 0) "content://media/external/audio/albumart/$albumId" else null
+
+            val ext = if (name.contains('.')) name.substringAfterLast('.').lowercase() else "mp3"
+
+            val json = org.json.JSONObject().apply {
+              put("id", "android_$id")
+              put("uri", uri)
+              put("path", org.json.JSONObject.NULL)
+              put("name", name)
+              put("title", if (!title.isNullOrBlank()) title else name)
+              put("artist", if (!artist.isNullOrBlank() && artist != "<unknown>") artist else org.json.JSONObject.NULL)
+              put("album", if (!album.isNullOrBlank() && album != "<unknown>") album else org.json.JSONObject.NULL)
+              put("durationSecs", dur / 1000.0)
+              put("sizeBytes", size)
+              put("mimeType", mime)
+              put("format", ext)
+              put("createdTimestampMs", added)
+              put("modifiedTimestampMs", mod)
+              put("coverUrl", if (coverUri != null) coverUri else org.json.JSONObject.NULL)
+            }
+            tracks.add(json.toString())
+          }
+        }
+      } catch (e: Throwable) {
+        Log.e(TAG, "queryMediaStoreMusic failed", e)
+      }
+
+      return "[" + tracks.joinToString(",") + "]"
+    }
+
+    @JvmStatic
     fun resolveUriToLocalPath(uriString: String): String {
       val context = appContext ?: instance?.applicationContext ?: return uriString
       // Plain filesystem path → use it as-is.
@@ -694,6 +692,90 @@ class MainActivity : TauriActivity() {
 
       Log.i(TAG, "Staging completed successfully: ${destFile.absolutePath} (${destFile.length()} bytes)")
       return destFile.absolutePath
+    }
+
+    @JvmStatic
+    fun deleteAudioTrack(uriString: String): String {
+      val context = appContext ?: instance?.applicationContext ?: return "Context unavailable"
+      return try {
+        val resolver = instance?.contentResolver ?: context.contentResolver
+        if (uriString.startsWith("content://")) {
+          val uri = Uri.parse(uriString)
+          val deletedRows = resolver.delete(uri, null, null)
+          if (deletedRows > 0) {
+            "OK"
+          } else {
+            "Delete returned 0 rows"
+          }
+        } else {
+          val file = File(if (uriString.startsWith("file://")) Uri.parse(uriString).path ?: uriString else uriString)
+          if (file.exists() && file.delete()) {
+            "OK"
+          } else {
+            "Could not delete local file"
+          }
+        }
+      } catch (e: SecurityException) {
+        Log.w(TAG, "Delete audio track threw SecurityException on $uriString", e)
+        "SECURITY_EXCEPTION"
+      } catch (e: Throwable) {
+        Log.e(TAG, "Delete audio track failed on $uriString", e)
+        e.message ?: "Unknown error"
+      }
+    }
+
+    @JvmStatic
+    fun setAsRingtone(uriString: String): String {
+      val context = appContext ?: instance?.applicationContext ?: return "Context unavailable"
+      return try {
+        if (!Settings.System.canWrite(context)) {
+          val intent = Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS).apply {
+            data = Uri.parse("package:" + context.packageName)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+          }
+          context.startActivity(intent)
+          return "PERMISSION_REQUIRED"
+        }
+
+        val uri = Uri.parse(uriString)
+        val resolver = instance?.contentResolver ?: context.contentResolver
+
+        try {
+          val values = ContentValues().apply {
+            put(android.provider.MediaStore.Audio.Media.IS_RINGTONE, true)
+          }
+          resolver.update(uri, values, null, null)
+        } catch (_: Throwable) {}
+
+        RingtoneManager.setActualDefaultRingtoneUri(context, RingtoneManager.TYPE_RINGTONE, uri)
+        "OK"
+      } catch (e: Throwable) {
+        Log.e(TAG, "Failed to set as ringtone: $uriString", e)
+        e.message ?: "Unknown error"
+      }
+    }
+
+    @JvmStatic
+    fun shareAudioTrack(uriString: String, title: String, mimeType: String): String {
+      val context = appContext ?: instance?.applicationContext ?: return "Context unavailable"
+      return try {
+        val uri = Uri.parse(uriString)
+        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+          type = if (mimeType.isNotBlank()) mimeType else "audio/*"
+          putExtra(Intent.EXTRA_STREAM, uri)
+          putExtra(Intent.EXTRA_SUBJECT, title)
+          addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+          addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        val chooser = Intent.createChooser(shareIntent, title).apply {
+          addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        context.startActivity(chooser)
+        "OK"
+      } catch (e: Throwable) {
+        Log.e(TAG, "Failed to share audio track: $uriString", e)
+        e.message ?: "Unknown error"
+      }
     }
   }
 }
