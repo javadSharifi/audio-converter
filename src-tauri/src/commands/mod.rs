@@ -738,6 +738,20 @@ pub async fn android_player_set_speed(speed: f64) -> Result<String> {
     .map_err(|e| AppError::Other(format!("Task failed: {e}")))?
 }
 
+/// Set output volume fraction (0.0..1.0) via native Jetpack Media3.
+/// Values above 1.0 are clamped natively; true >100% boost needs a DSP
+/// AudioProcessor (Rhythm pattern) and is intentionally not faked.
+#[tauri::command]
+#[specta::specta]
+pub async fn android_player_set_volume(volume: f64) -> Result<String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::android_fs::call_player_set_volume_jni(volume as f32)
+            .map_err(|e| AppError::Other(e))
+    })
+    .await
+    .map_err(|e| AppError::Other(format!("Task failed: {e}")))?
+}
+
 /// Stop playback via native Jetpack Media3.
 #[tauri::command]
 #[specta::specta]
@@ -783,6 +797,25 @@ pub async fn resolve_audio_track(path_or_uri: String) -> Result<crate::music_lib
     })
     .await
     .map_err(|e| AppError::Other(format!("Task failed: {e}")))?
+}
+
+/// Exit the app (used for Android double-back-to-exit).
+/// On desktop this terminates via Tauri; on Android the Kotlin
+/// `exitApp` bridge finishes the activity.
+#[tauri::command]
+#[specta::specta]
+pub fn exit_app(app: tauri::AppHandle) {
+    #[cfg(target_os = "android")]
+    {
+        // Ask Kotlin to finish the activity on the main thread.
+        let _ = crate::android_fs::call_static_void("exitApp");
+        // Fallback: also ask the runtime to exit in case the bridge is dead.
+        app.exit(0);
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        app.exit(0);
+    }
 }
 
 

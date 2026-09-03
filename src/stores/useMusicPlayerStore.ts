@@ -15,20 +15,26 @@ import {
   persistCustomFolders,
   loadCustomAlbums,
   persistCustomAlbums,
+  loadCachedTracks,
+  persistCachedTracks,
 } from "./musicPlayer/persistence";
 import {
   bindMusicStore,
+  applyGainPercent,
   getGlobalGainNode,
   unifiedPlayTrack,
   unifiedPause,
   unifiedResume,
   unifiedSeekTo,
+  unifiedNext,
+  unifiedPrevious,
   unifiedSetRepeatMode,
   unifiedSetShuffleMode,
   unifiedSetSpeed,
   unifiedStop,
 } from "./musicPlayer/audioEngine";
 import { getTrackKey, getTrackAliases, isTrackLiked } from "./musicPlayer/trackUtils";
+import { isAndroid } from "../utils/platform";
 
 export { getGlobalAudio, getGlobalGainNode } from "./musicPlayer/audioEngine";
 export {
@@ -119,7 +125,7 @@ export interface MusicPlayerState {
 }
 
 export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
-  tracks: [],
+  tracks: loadCachedTracks(),
   loading: false,
   hasScanned: false,
   searchQuery: "",
@@ -152,12 +158,28 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
   },
 
   async scanLibrary(customDirs) {
+    // Keep cached tracks visible while rescanning — the list only swaps
+    // once fresh results arrive, so the UI never flashes empty and the
+    // permission banner stays hidden when we already have songs.
+    if (get().loading) return;
+    const hadCached = get().tracks.length > 0;
+    const isManual = customDirs !== undefined;
     set({ loading: true });
     try {
       const targetDirs =
         customDirs ?? (get().customFolders.length > 0 ? get().customFolders : undefined);
       const tracks = await api.scanAudioFiles(targetDirs);
+      // A background auto-scan that comes back empty (e.g. permission
+      // hiccup) must not wipe a good cache — keep showing cached songs.
+      if (tracks.length === 0 && hadCached && !isManual) {
+        set({ loading: false, hasScanned: true });
+        return;
+      }
       set({ tracks, loading: false, hasScanned: true });
+      // Cache in the background; never let quota errors break the scan.
+      try {
+        persistCachedTracks(tracks);
+      } catch {}
     } catch (err) {
       console.warn("Library scan failed:", err);
       set({ loading: false, hasScanned: true });
@@ -314,6 +336,30 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
 
   async playNextTrack(auto = false) {
     const state = get();
+    // Android: the native ExoPlayer owns the queue (set via playTrack's
+    // playlist+index). Delegate next/prev to it so notification, lock
+    // screen, Bluetooth and auto-advance all share one queue — Rhythm does
+    // controller.seekToNext() for the same reason. Re-calling playTrack()
+    // here would rebuild the whole queue (re-buffer + notification flicker).
+    // NOTE: repeat-one only loops on AUTO (track end, handled natively by
+    // ExoPlayer REPEAT_MODE_ONE). A MANUAL next must always advance — the
+    // previous code restarted the same track on manual next, which disagrees
+    // with Rhythm/platform convention.
+    if (isAndroid()) {
+      try {
+        await unifiedNext();
+      } catch (e) {
+        console.warn("Native next failed, falling back to JS queue:", e);
+      }
+      // If native has no queue (e.g. single-track cold start or native
+      // error), fall through to the JS queue logic below only when the
+      // native call clearly could not advance. The push+poll sync adopts
+      // the native track quickly; optimistic JS switching here would
+      // fight it, so only fall back when there is nothing native to advance.
+      // Heuristic: fall back only when the native playlist is empty.
+      // (Native queue is populated on every playTrack with a playlist.)
+      if (state.currentPlaylist.length > 0) return;
+    }
     const list = state.currentPlaylist.length > 0 ? state.currentPlaylist : state.tracks;
     if (list.length === 0) return;
 
@@ -359,6 +405,21 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
 
   async playPreviousTrack() {
     const state = get();
+    // Android: delegate to the native queue (see playNextTrack). The >3s
+    // restart-vs-previous rule is enforced natively by position: if the
+    // native position is past 3s we seek to 0, else we step back.
+    if (isAndroid()) {
+      if (state.currentTime > 3) {
+        state.seekTo(0);
+        return;
+      }
+      try {
+        await unifiedPrevious();
+      } catch (e) {
+        console.warn("Native previous failed, falling back to JS queue:", e);
+      }
+      if (state.currentPlaylist.length > 0) return;
+    }
     const list = state.currentPlaylist.length > 0 ? state.currentPlaylist : state.tracks;
     if (list.length === 0) return;
 
@@ -417,13 +478,16 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
 
   setVolumeGainPercent(gain) {
     const clamped = Math.max(0, Math.min(400, gain));
-    const gainNode = getGlobalGainNode();
-    if (gainNode) {
+    try {
+      // Routed through the shared WebAudio graph (with safe fallbacks inside).
+      applyGainPercent(clamped);
+    } catch (e) {
+      console.warn("Failed to set gain value:", e);
+      // Last-resort fallback so playback never goes silent.
       try {
-        gainNode.gain.value = clamped / 100;
-      } catch (e) {
-        console.warn("Failed to set gain value:", e);
-      }
+        const fallback = getGlobalGainNode();
+        if (fallback) fallback.gain.value = clamped / 100;
+      } catch {}
     }
     set({ volumeGainPercent: clamped });
   },
@@ -532,6 +596,9 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
         isSelectionMode: false,
       };
     });
+    try {
+      persistCachedTracks(get().tracks);
+    } catch {}
   },
 
   addMultipleTracksToAlbum(albumId, tracksToAdd) {
@@ -577,6 +644,9 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
       );
       return { tracks: nextTracks, currentPlaylist: nextPlaylist };
     });
+    try {
+      persistCachedTracks(get().tracks);
+    } catch {}
 
     // Remove from liked if present
     const isLiked = isTrackLiked(track, get().likedPaths);

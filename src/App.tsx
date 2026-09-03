@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { HeaderBar } from "./components/HeaderBar";
 import { DropZone } from "./components/DropZone";
 import { FileList } from "./components/FileList";
@@ -7,8 +7,9 @@ import { JobsPanel } from "./components/JobsPanel";
 import { MusicPlayerView } from "./components/music-player/MusicPlayerView";
 import { Toasts } from "./components/Toasts";
 import { useAppStore } from "./stores/useAppStore";
+import { useMusicPlayerStore } from "./stores/useMusicPlayerStore";
 import { translate } from "./i18n";
-import { useTheme, useDirection, resolveTheme } from "./hooks/useTheme";
+import { useTheme, useDirection } from "./hooks/useTheme";
 import { openPath } from "@tauri-apps/plugin-opener";
 import { listen } from "@tauri-apps/api/event";
 import { isLossy } from "./types";
@@ -16,6 +17,7 @@ import { isAndroid } from "./utils/platform";
 import * as api from "./utils/tauri";
 import { useNativeDragDrop } from "./hooks/useNativeDragDrop";
 import { handleIncomingFiles } from "./utils/openWith";
+import { ANDROID_BACK_EVENT, wasBackConsumed } from "./utils/androidBack";
 import { Loader2, Play, Lock } from "lucide-react";
 import type { QueueItem } from "./types";
 
@@ -74,7 +76,6 @@ function StartBar(): React.JSX.Element {
 
 export default function App(): React.JSX.Element {
   const lang = useAppStore((s) => s.lang);
-  const theme = useAppStore((s) => s.theme);
   const activeTool = useAppStore((s) => s.activeTool);
   const files = useAppStore((s) => s.files);
   const addPaths = useAppStore((s) => s.addPaths);
@@ -123,6 +124,53 @@ export default function App(): React.JSX.Element {
       window.removeEventListener("focus", onFocus);
       document.removeEventListener("visibilitychange", onVisibility);
     };
+  }, []);
+
+  // Android hardware back: sheets/tabs/fullscreen are consumed by deeper
+  // views first (see androidBack helpers). Here we handle: dismiss permission
+  // modal → exit selection → player back to converter (home) → double-press
+  // to exit with a toast on first press.
+  const lastBackPress = useRef(0);
+  const permOpenRef = useRef(false);
+  permOpenRef.current = permOpen;
+  const dismissPermRef = useRef(() => {});
+  dismissPermRef.current = () => setPermOpen(false);
+  useEffect(() => {
+    if (!isAndroid()) return;
+    const onAndroidBack = () => {
+      if (wasBackConsumed()) return;
+      if (permOpenRef.current) {
+        dismissPermRef.current();
+        return;
+      }
+      const appState = useAppStore.getState();
+      const musicState = useMusicPlayerStore.getState();
+
+      if (musicState.isSelectionMode) {
+        musicState.exitSelectionMode();
+        return;
+      }
+      if (musicState.fullscreenOpen) {
+        // Safety net (NowPlayingView normally consumes this first).
+        musicState.setFullscreenOpen(false);
+        return;
+      }
+      if (appState.activeTool === "player") {
+        appState.setActiveTool("converter");
+        return;
+      }
+
+      const now = Date.now();
+      if (now - lastBackPress.current < 2000) {
+        lastBackPress.current = 0;
+        void api.exitApp();
+        return;
+      }
+      lastBackPress.current = now;
+      appState.pushToast("info", "pressBackAgainToExit");
+    };
+    window.addEventListener(ANDROID_BACK_EVENT, onAndroidBack as EventListener);
+    return () => window.removeEventListener(ANDROID_BACK_EVENT, onAndroidBack as EventListener);
   }, []);
 
   // Handle files opened via Open With, file association, or share sheet (cross-platform)
@@ -178,7 +226,9 @@ export default function App(): React.JSX.Element {
   useNativeDragDrop(handleNativeDrop);
 
   useEffect(() => {
-    document.documentElement.classList.toggle("dark", resolveTheme(theme) === "dark");
+    // Theme class is owned SOLELY by useTheme() (single writer). Writing it
+    // here too caused double style recalc per settings load; Rhythm similarly
+    // keeps one remembered color-scheme source to avoid recomposition storms.
     void loadSettings().catch(() => {});
     let cleanup: (() => void) | null = null;
     void initEventListeners().then((fn) => (cleanup = fn));

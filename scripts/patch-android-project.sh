@@ -37,14 +37,32 @@ echo "Patching Tauri Android project ($TRIPLE → $JNI_DIR)..."
 if [ -d "$ROOT/src-tauri/icons/android" ]; then
   cp -rf "$ROOT/src-tauri/icons/android"/* "$GEN/app/src/main/res/" 2>/dev/null || true
 fi
-mkdir -p "$GEN/app/src/main/res/values" "$GEN/app/src/main/res/values-fa"
+mkdir -p "$GEN/app/src/main/res/values" "$GEN/app/src/main/res/values-fa" "$GEN/app/src/main/res/drawable"
 cat > "$GEN/app/src/main/res/values/strings.xml" << 'EOF'
 <resources>
     <string name="app_name">Audio Converter</string>
     <string name="main_activity_title">Audio Converter</string>
     <string name="default_notification_channel_id">audio_converter_notifications</string>
     <string name="permission_denied_hint">Storage / media access is required to pick files. Grant it in system Settings → Apps → Audio Converter → Permissions.</string>
+    <string name="media3_notification_channel_name">Music playback</string>
+    <string name="media3_notification_channel_description">Shows the current track and playback controls</string>
+    <string name="service_starting">Starting…</string>
 </resources>
+EOF
+cat > "$GEN/app/src/main/res/drawable/ic_notification.xml" << 'EOF'
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Minimal white music-note small icon for the Media3 playback notification.
+     Must stay a white silhouette on transparent (notification requirement). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24"
+    android:tint="#FFFFFF">
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M12,3v10.55c-0.59,-0.34 -1.27,-0.55 -2,-0.55 -2.21,0 -4,1.79 -4,4s1.79,4 4,4 4,-1.79 4,-4V7h4V3h-6z" />
+</vector>
 EOF
 cat > "$GEN/app/src/main/res/values-fa/strings.xml" << 'EOF'
 <resources>
@@ -115,8 +133,18 @@ node -e '
 
   // Inject PlaybackService into application tag if missing
   if (!content.includes("PlaybackService")) {
-    const serviceTag = "\n        <!-- Media3 Foreground Playback Service -->\n        <service\n            android:name=\".PlaybackService\"\n            android:foregroundServiceType=\"mediaPlayback\"\n            android:exported=\"true\">\n            <intent-filter>\n                <action android:name=\"androidx.media3.session.MediaSessionService\" />\n                <action android:name=\"android.media.browse.MediaBrowserService\" />\n            </intent-filter>\n        </service>\n";
+    const serviceTag = "\n        <!-- Media3 Foreground Playback Service -->\n        <service\n            android:name=\".PlaybackService\"\n            android:foregroundServiceType=\"mediaPlayback\"\n            android:exported=\"true\">\n            <intent-filter>\n                <action android:name=\"androidx.media3.session.MediaSessionService\" />\n                <action android:name=\"android.media.browse.MediaBrowserService\" />\n            </intent-filter>\n            <meta-data\n                android:name=\"androidx.media3.session.DefaultMediaNotificationProvider.smallIcon\"\n                android:resource=\"@drawable/ic_notification\" />\n        </service>\n";
     content = content.replace(/<\/application>/, serviceTag + "    $&");
+  }
+
+  // Ensure the Media3 smallIcon meta-data survives re-patches (older
+  // manifests have the service without it, which falls back to the app icon
+  // or no icon in the media notification).
+  if (content.includes("PlaybackService") && !content.includes("DefaultMediaNotificationProvider.smallIcon")) {
+    content = content.replace(
+      /(<service[^>]*android:name="\.PlaybackService"[^>]*>[\s\S]*?<intent-filter>[\s\S]*?<\/intent-filter>)/,
+      "$1\n            <meta-data\n                android:name=\"androidx.media3.session.DefaultMediaNotificationProvider.smallIcon\"\n                android:resource=\"@drawable/ic_notification\" />"
+    );
   }
 
   fs.writeFileSync(p, content);

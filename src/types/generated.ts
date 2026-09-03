@@ -96,6 +96,8 @@ export const commands = {
 	androidPlayerSetShuffleMode: (enabled: boolean) => typedError<string, AppError>(__TAURI_INVOKE("android_player_set_shuffle_mode", { enabled })),
 	/**  Set playback speed (e.g. 1.0, 1.25) via native Jetpack Media3. */
 	androidPlayerSetSpeed: (speed: number | null) => typedError<string, AppError>(__TAURI_INVOKE("android_player_set_speed", { speed })),
+	/**  Set output volume fraction (0.0..1.0) via native Jetpack Media3. */
+	androidPlayerSetVolume: (volume: number | null) => typedError<string, AppError>(__TAURI_INVOKE("android_player_set_volume", { volume })),
 	/**  Stop playback via native Jetpack Media3. */
 	androidPlayerStop: () => typedError<string, AppError>(__TAURI_INVOKE("android_player_stop")),
 	/**  Query live playback state from native Jetpack Media3. */
@@ -104,6 +106,12 @@ export const commands = {
 	getPendingOpenFiles: () => typedError<string[], AppError>(__TAURI_INVOKE("get_pending_open_files")),
 	/**  Resolve a single audio file path or content:// URI into an AudioTrackInfo struct. */
 	resolveAudioTrack: (pathOrUri: string) => typedError<AudioTrackInfo, AppError>(__TAURI_INVOKE("resolve_audio_track", { pathOrUri })),
+	/**
+	 *  Exit the app (used for Android double-back-to-exit).
+	 *  On desktop this terminates via Tauri; on Android the Kotlin
+	 *  `exitApp` bridge finishes the activity.
+	 */
+	exitApp: () => __TAURI_INVOKE<void>("exit_app"),
 };
 
 /* Types */

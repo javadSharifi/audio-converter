@@ -14,6 +14,7 @@ import android.provider.Settings
 import android.system.Os
 import android.util.Log
 import android.widget.Toast
+import androidx.activity.OnBackPressedCallback
 import androidx.annotation.Keep
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -88,12 +89,63 @@ class MainActivity : TauriActivity() {
     try {
       configureWebViewSettings()
     } catch (_: Throwable) {}
+
+    // Intercept the system Back button and let the WebView decide:
+    // close fullscreen/sheets first, navigate home, and only exit on a
+    // deliberate double-press (frontend shows the "press again" toast and
+    // calls exitApp() when it really wants to quit).
+    try {
+      onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+        override fun handleOnBackPressed() {
+          dispatchBackToWebView()
+        }
+      })
+    } catch (_: Throwable) {}
   }
 
   override fun onNewIntent(intent: Intent) {
     super.onNewIntent(intent)
     setIntent(intent)
     handleIncomingIntent(intent)
+  }
+
+  /**
+   * Forward the hardware Back button to the frontend (`ac:android-back`).
+   * The callback above consumes the press so the activity never finishes
+   * accidentally from the song list — the frontend calls exitApp() only
+   * after a confirmed double-press.
+   */
+  private fun dispatchBackToWebView() {
+    try {
+      val decor = window?.decorView ?: return
+      decor.post {
+        try {
+          val webView = findWebView(decor)
+          if (webView != null) {
+            webView.evaluateJavascript(
+              "window.dispatchEvent(new CustomEvent('ac:android-back'));",
+              null
+            )
+          }
+        } catch (t: Throwable) {
+          Log.w(TAG, "Failed to dispatch ac:android-back to WebView", t)
+        }
+      }
+    } catch (t: Throwable) {
+      Log.w(TAG, "dispatchBackToWebView failed", t)
+    }
+  }
+
+  @Deprecated("Use OnBackPressedDispatcher callback instead")
+  @Suppress("DEPRECATION")
+  override fun onBackPressed() {
+    // Consumed here for API < 33 devices without the dispatcher path —
+    // forward to the WebView instead of finishing the activity.
+    try {
+      dispatchBackToWebView()
+    } catch (_: Throwable) {
+      super.onBackPressed()
+    }
   }
 
   private fun handleIncomingIntent(intent: Intent?) {
@@ -202,7 +254,9 @@ class MainActivity : TauriActivity() {
     }
   }
 
-  private fun findWebView(view: android.view.View): android.webkit.WebView? {
+  // internal (not private) so the companion push bridge
+  // (dispatchPlayerState) can call it without visibility doubt.
+  internal fun findWebView(view: android.view.View): android.webkit.WebView? {
     if (view is android.webkit.WebView) return view
     if (view is android.view.ViewGroup) {
       for (i in 0 until view.childCount) {
@@ -366,6 +420,25 @@ class MainActivity : TauriActivity() {
         ctx.startActivity(intent)
       } catch (t: Throwable) {
         Log.w(TAG, "openAppSettings failed", t)
+      }
+    }
+
+    /** Finish the activity (double-back-to-exit confirmation from frontend). */
+    @JvmStatic
+    fun exitApp() {
+      try {
+        val act = instance
+        if (act != null) {
+          android.os.Handler(android.os.Looper.getMainLooper()).post {
+            try {
+              act.finish()
+            } catch (t: Throwable) {
+              Log.w(TAG, "exitApp finish failed", t)
+            }
+          }
+        }
+      } catch (t: Throwable) {
+        Log.w(TAG, "exitApp failed", t)
       }
     }
 
@@ -960,6 +1033,12 @@ class MainActivity : TauriActivity() {
     }
 
     @JvmStatic
+    fun nativePlayerSetVolume(volume: Float): String {
+      val ctx = appContext ?: instance?.applicationContext ?: return "CONTEXT_NULL"
+      return PlaybackService.setVolume(ctx, volume)
+    }
+
+    @JvmStatic
     fun nativePlayerStop(): String {
       val ctx = appContext ?: instance?.applicationContext ?: return "CONTEXT_NULL"
       return PlaybackService.stop(ctx)
@@ -968,6 +1047,47 @@ class MainActivity : TauriActivity() {
     @JvmStatic
     fun nativePlayerGetState(): String {
       return PlaybackService.getCurrentStateJson()
+    }
+
+    /**
+     * Push bridge: PlaybackService -> WebView React engine.
+     * Mirrors Rhythm's service->UI callback fan-out (MediaController
+     * listeners -> StateFlow) using the same CustomEvent transport this
+     * activity already uses for open-files/share. Polling stays as fallback
+     * because WebView timers stall in background, but pushes make
+     * notification/lock-screen taps reflect instantly when visible.
+     */
+    @JvmStatic
+    fun dispatchPlayerState(stateJson: String) {
+      if (stateJson.isBlank()) return
+      try {
+        val act = instance ?: return
+        // Never touch a finishing/destroyed Activity — evaluating JS on a
+        // dead WebView is a crash ("keeps stopping") on some OEM firmwares.
+        try {
+          if (act.isFinishing || act.isDestroyed) return
+        } catch (_: Throwable) {}
+        val decor = try {
+          act.window?.decorView
+        } catch (_: Throwable) {
+          null
+        } ?: return
+        decor.post {
+          try {
+            val webView = act.findWebView(act.window?.decorView ?: return@post)
+            if (webView != null) {
+              val quoted = org.json.JSONObject.quote(stateJson)
+              val js =
+                "window.dispatchEvent(new CustomEvent('ac:player-state', { detail: JSON.parse($quoted) }));"
+              webView.evaluateJavascript(js, null)
+            }
+          } catch (t: Throwable) {
+            Log.w(TAG, "dispatchPlayerState to WebView failed", t)
+          }
+        }
+      } catch (t: Throwable) {
+        Log.w(TAG, "dispatchPlayerState failed", t)
+      }
     }
   }
 }

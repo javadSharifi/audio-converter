@@ -326,4 +326,5 @@ export const fa: Record<TranslationKey, string> = {
   resetBoost: "ریست بوست",
   defaultSpeed: "پیش‌فرض (۱.۰x)",
   exitSelection: "انصراف",
+  pressBackAgainToExit: "برای خروج دوباره دکمه برگشت را بزنید",
 };

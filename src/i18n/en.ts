@@ -323,6 +323,7 @@ export const en = {
   resetBoost: "Reset Boost",
   defaultSpeed: "Default (1.0x)",
   exitSelection: "Cancel",
+  pressBackAgainToExit: "Press back again to exit",
 } as const;
 
 export type TranslationKey = keyof typeof en;

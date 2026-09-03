@@ -25,6 +25,7 @@ vi.mock("../../../utils/tauri", () => ({
   androidPlayerSetRepeatMode: vi.fn(async () => "OK"),
   androidPlayerSetShuffleMode: vi.fn(async () => "OK"),
   androidPlayerSetSpeed: vi.fn(async () => "OK"),
+  androidPlayerSetVolume: vi.fn(async () => "OK"),
   androidPlayerStop: vi.fn(async () => "OK"),
   androidPlayerGetState: vi.fn(async () => ({
     isPlaying: true,

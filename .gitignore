@@ -16,3 +16,6 @@ src-tauri/binaries/*
 secrets.android.env
 local.properties
 
+# Local reference project (read-only study material, never commit)
+Rhythm-main/
+

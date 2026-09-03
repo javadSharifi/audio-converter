@@ -79,7 +79,14 @@
                 <action android:name="androidx.media3.session.MediaSessionService" />
                 <action android:name="android.media.browse.MediaBrowserService" />
             </intent-filter>
+            <meta-data
+                android:name="androidx.media3.session.DefaultMediaNotificationProvider.smallIcon"
+                android:resource="@drawable/ic_notification" />
         </service>
+
+        <!-- Media3 notification icon (application-level fallback) -->
+        <!-- (kept alongside the service-level entry so the provider resolves
+             the icon regardless of which component context Media3 uses) -->
 
         <provider
             android:name="androidx.core.content.FileProvider"

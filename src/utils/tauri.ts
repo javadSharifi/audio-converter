@@ -307,6 +307,15 @@ export async function androidPlayerSetSpeed(speed: number): Promise<string> {
   return res.data;
 }
 
+export async function androidPlayerSetVolume(volume01: number): Promise<string> {
+  const clamped = Math.max(0, Math.min(1, volume01));
+  const res = await commands.androidPlayerSetVolume(clamped);
+  if (res.status === "error") {
+    throw new Error(formatAppError(res.error));
+  }
+  return res.data;
+}
+
 export async function androidPlayerStop(): Promise<string> {
   const res = await commands.androidPlayerStop();
   if (res.status === "error") {
@@ -349,6 +358,15 @@ export async function resolveAudioTrack(pathOrUri: string): Promise<import("../t
   } catch (e) {
     console.warn("resolveAudioTrack failed:", e);
     return null;
+  }
+}
+
+/** Exit the app (Android double-back-to-exit, no-op fallback on web). */
+export async function exitApp(): Promise<void> {
+  try {
+    await commands.exitApp();
+  } catch (e) {
+    console.warn("exitApp failed:", e);
   }
 }
 

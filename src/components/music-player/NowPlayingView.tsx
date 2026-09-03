@@ -1,10 +1,12 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { useAppStore } from "../../stores/useAppStore";
 import { useMusicPlayerStore, isTrackLiked } from "../../stores/useMusicPlayerStore";
 import { translate } from "../../i18n";
 import { TrackCover } from "./TrackCover";
 import { WaveformSeekbar } from "./WaveformSeekbar";
 import { TrackOptionsSheet } from "./TrackOptionsSheet";
+import { ANDROID_BACK_EVENT, markBackConsumed, wasBackConsumed } from "../../utils/androidBack";
+import { isAndroid } from "../../utils/platform";
 import {
   ChevronDown,
   MoreHorizontal,
@@ -70,6 +72,27 @@ export function NowPlayingView(): React.JSX.Element | null {
   const [boosterOpen, setBoosterOpen] = useState(false);
   const [desktopSearch, setDesktopSearch] = useState("");
 
+  // Android back: sheets first, then fullscreen (deepest handler wins).
+  useEffect(() => {
+    if (!isAndroid()) return;
+    const onBack = () => {
+      if (wasBackConsumed()) return;
+      if (!fullscreenOpen) return;
+      if (optionsOpen || queueOpen || speedOpen || boosterOpen) {
+        setOptionsOpen(false);
+        setQueueOpen(false);
+        setSpeedOpen(false);
+        setBoosterOpen(false);
+        markBackConsumed();
+        return;
+      }
+      setFullscreenOpen(false);
+      markBackConsumed();
+    };
+    window.addEventListener(ANDROID_BACK_EVENT, onBack as EventListener);
+    return () => window.removeEventListener(ANDROID_BACK_EVENT, onBack as EventListener);
+  }, [fullscreenOpen, optionsOpen, queueOpen, speedOpen, boosterOpen, setFullscreenOpen]);
+
   // Active playlist
   const activeList = useMemo(() => {
     return currentPlaylist.length > 0 ? currentPlaylist : tracks;
@@ -116,16 +139,18 @@ export function NowPlayingView(): React.JSX.Element | null {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col w-full h-full min-h-0 bg-zinc-50 dark:bg-[#09090b] text-zinc-900 dark:text-zinc-100 p-4 sm:p-6 pb-24 sm:pb-28 select-none overflow-hidden justify-between animate-in slide-in-from-bottom duration-300">
+    <div className="fixed inset-0 z-[70] flex flex-col w-full h-[100dvh] min-h-0 bg-zinc-50 dark:bg-[#09090b] text-zinc-900 dark:text-zinc-100 px-4 sm:px-6 pt-[calc(1rem+env(safe-area-inset-top,0px))] pb-[calc(1.25rem+env(safe-area-inset-bottom,0px))] select-none overflow-y-auto overflow-x-hidden justify-between animate-in slide-in-from-bottom duration-300">
       {/* Top Ambient Glow */}
       <div className="absolute top-0 inset-x-0 h-48 bg-gradient-to-b from-orange-500/15 via-amber-500/5 to-transparent pointer-events-none" />
+      {/* Bottom Ambient Glow (mirrors top so the lower half never looks flat/black) */}
+      <div className="absolute bottom-0 inset-x-0 h-40 bg-gradient-to-t from-orange-500/10 via-amber-500/[0.04] to-transparent pointer-events-none" />
 
       {/* Main Container: Split into 2 columns on desktop (lg:flex-row) */}
-      <div className="relative z-10 flex flex-col lg:flex-row flex-1 w-full min-h-0 gap-6 overflow-hidden max-w-5xl mx-auto">
+      <div className="relative z-10 flex flex-col lg:flex-row flex-1 w-full min-h-0 gap-6 overflow-visible max-w-5xl mx-auto">
         {/* =============================================================== */}
         {/* LEFT COLUMN: MAIN MUSIC PLAYER                                  */}
         {/* =============================================================== */}
-        <div className="flex flex-col flex-1 min-h-0 min-w-0 justify-between overflow-hidden max-w-xl mx-auto w-full">
+        <div className="flex flex-col flex-1 min-h-0 min-w-0 justify-between overflow-visible max-w-xl mx-auto w-full">
           {/* =============================================================== */}
           {/* 1. TOP HEADER BAR                                               */}
           {/* =============================================================== */}
@@ -341,7 +366,7 @@ export function NowPlayingView(): React.JSX.Element | null {
           {/* =============================================================== */}
           {/* 6. HALO PLAYBACK CONTROLS (Prev / Halo Play / Next)              */}
           {/* =============================================================== */}
-          <div className="relative z-10 flex items-center justify-center gap-6 sm:gap-8 py-2 pb-1 shrink-0">
+          <div className="relative z-10 flex items-center justify-center gap-6 sm:gap-8 pt-2 pb-4 shrink-0 overflow-visible">
             {/* Previous Track */}
             <button
               type="button"
@@ -353,7 +378,7 @@ export function NowPlayingView(): React.JSX.Element | null {
             </button>
 
             {/* HALO PLAY / PAUSE BUTTON */}
-            <div className="relative flex items-center justify-center">
+            <div className="relative flex items-center justify-center overflow-visible">
               {/* Pulsing ambient glowing rings when active */}
               {isPlaying && (
                 <>
@@ -491,7 +516,7 @@ export function NowPlayingView(): React.JSX.Element | null {
       {/* 7. PLAYBACK SPEED POPUP (0.5x to 2.5x with Reset)                 */}
       {/* ================================================================= */}
       {speedOpen && (
-        <div className="fixed inset-0 z-[60] flex flex-col justify-end bg-black/50 backdrop-blur-sm animate-in fade-in duration-150">
+        <div className="fixed inset-0 z-[80] flex flex-col justify-end bg-black/50 backdrop-blur-sm animate-in fade-in duration-150">
           <div className="absolute inset-0" onClick={() => setSpeedOpen(false)} />
 
           <div
@@ -574,7 +599,7 @@ export function NowPlayingView(): React.JSX.Element | null {
       {/* 8. SOUND BOOSTER POPUP (100% to 400% with Reset)                  */}
       {/* ================================================================= */}
       {boosterOpen && (
-        <div className="fixed inset-0 z-[60] flex flex-col justify-end bg-black/50 backdrop-blur-sm animate-in fade-in duration-150">
+        <div className="fixed inset-0 z-[80] flex flex-col justify-end bg-black/50 backdrop-blur-sm animate-in fade-in duration-150">
           <div className="absolute inset-0" onClick={() => setBoosterOpen(false)} />
 
           <div
@@ -661,7 +686,7 @@ export function NowPlayingView(): React.JSX.Element | null {
       {/* 9. MOBILE QUEUE / UP NEXT SLIDE-UP DRAWER                         */}
       {/* ================================================================= */}
       {queueOpen && (
-        <div className="fixed inset-0 z-[60] flex flex-col justify-end bg-black/50 backdrop-blur-sm animate-in fade-in duration-150 lg:hidden">
+        <div className="fixed inset-0 z-[80] flex flex-col justify-end bg-black/50 backdrop-blur-sm animate-in fade-in duration-150 lg:hidden">
           <div className="absolute inset-0" onClick={() => setQueueOpen(false)} />
 
           <div

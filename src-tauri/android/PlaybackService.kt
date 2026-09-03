@@ -1,5 +1,7 @@
 package com.audioconverter.app
 
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
@@ -10,6 +12,7 @@ import android.os.Looper
 import android.util.Log
 import androidx.annotation.Keep
 import androidx.annotation.OptIn
+import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
@@ -47,6 +50,24 @@ class PlaybackService : MediaSessionService() {
     instance = this
     Log.i(TAG, "Creating PlaybackService with Jetpack Media3")
 
+    // Rhythm pattern: explicit notification provider + channel + early
+    // foreground promotion. MediaSessionService auto-promotes on playback,
+    // but when started via startForegroundService() Android requires
+    // startForeground() within ~5s or the process is killed (the classic
+    // "playback stops after ~5s / in background" failure). Promote early
+    // with a placeholder notification; Media3 replaces it once playing.
+    try {
+      setMediaNotificationProvider(
+        androidx.media3.session.DefaultMediaNotificationProvider(this).apply {
+          setSmallIcon(R.drawable.ic_notification)
+        }
+      )
+    } catch (t: Throwable) {
+      Log.w(TAG, "Could not set custom notification provider", t)
+    }
+    createNotificationChannel()
+    startForegroundWithPlaceholder()
+
     try {
       val audioAttributes = AudioAttributes.Builder()
         .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
@@ -73,6 +94,10 @@ class PlaybackService : MediaSessionService() {
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
           Log.d(TAG, "onMediaItemTransition: ${mediaItem?.mediaId}, reason: $reason")
+          // A new item means any previous fatal error no longer describes
+          // the current track (Rhythm clears per-track error UI on transition).
+          lastErrorCode = null
+          lastErrorMessage = null
           val trackJson = mediaItemToTrackJson(mediaItem)
           eventListener?.onTrackTransition(trackJson)
           broadcastStateUpdate()
@@ -80,6 +105,11 @@ class PlaybackService : MediaSessionService() {
 
         override fun onPlayerError(error: PlaybackException) {
           Log.e(TAG, "Player error: ${error.errorCodeName} - ${error.message}", error)
+          // Remember the failure so the UI/poll bridge can surface WHY the
+          // player stalled instead of showing a silent seekbar freeze.
+          // Cleared on the next successful transition or play() call.
+          lastErrorCode = error.errorCodeName ?: "PLAYBACK_ERROR"
+          lastErrorMessage = error.message
           broadcastStateUpdate()
         }
       })
@@ -106,44 +136,274 @@ class PlaybackService : MediaSessionService() {
 
       mediaSession = builder.build()
       Log.i(TAG, "MediaSession created successfully")
+      drainPendingPlay()
     } catch (t: Throwable) {
       Log.e(TAG, "Failed to initialize MediaSessionService", t)
     }
   }
 
+  override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+    // Delegate to MediaSessionService so media-button / controller intents
+    // keep working; framework decides stickiness. Rhythm returns the super
+    // result here as well (START_NOT_STICKY only for its own early-returns).
+    // Never let an exception escape a Service lifecycle callback — that is an
+    // instant "keeps stopping" crash with no recovery.
+    return try {
+      super.onStartCommand(intent, flags, startId)
+    } catch (t: Throwable) {
+      Log.e(TAG, "onStartCommand failed", t)
+      android.app.Service.START_NOT_STICKY
+    }
+  }
+
+  @OptIn(UnstableApi::class)
+  override fun onUpdateNotification(session: MediaSession, startInForegroundRequired: Boolean) {
+    // Let Media3 drive notification <-> foreground transitions (notification,
+    // lock screen, Bluetooth all follow the session). Override kept explicit
+    // so future custom buttons/channel tweaks have a single hook (Rhythm
+    // keeps the same override for its icon guarantee).
+    try {
+      super.onUpdateNotification(session, startInForegroundRequired)
+    } catch (t: Throwable) {
+      Log.e(TAG, "onUpdateNotification failed", t)
+    }
+  }
+
   override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? {
-    return mediaSession
+    return try {
+      mediaSession
+    } catch (t: Throwable) {
+      Log.e(TAG, "onGetSession failed", t)
+      null
+    }
   }
 
   override fun onTaskRemoved(rootIntent: Intent?) {
-    val pl = player
-    if (pl == null || !pl.playWhenReady || pl.mediaItemCount == 0) {
-      stopSelf()
+    // Rhythm pattern: keep the service alive while actually playing so
+    // swipe-away does not kill background audio; stop only when idle.
+    // Media3 keeps the foreground notification while playing; stopSelf()
+    // when idle lets the system reclaim us cleanly.
+    try {
+      val pl = player
+      if (pl == null || !pl.playWhenReady || pl.mediaItemCount == 0) {
+        try {
+          stopSelf()
+        } catch (t: Throwable) {
+          Log.w(TAG, "stopSelf failed in onTaskRemoved", t)
+        }
+      } else {
+        Log.i(TAG, "onTaskRemoved: continuing background playback")
+      }
+    } catch (t: Throwable) {
+      Log.e(TAG, "onTaskRemoved failed", t)
+    }
+    try {
+      super.onTaskRemoved(rootIntent)
+    } catch (t: Throwable) {
+      Log.e(TAG, "super.onTaskRemoved failed", t)
     }
   }
 
   override fun onDestroy() {
     Log.i(TAG, "Destroying PlaybackService")
-    if (instance === this) {
-      instance = null
-    }
-    mediaSession?.run {
-      player.release()
-      release()
-      mediaSession = null
+    try {
+      if (instance === this) {
+        instance = null
+      }
+    } catch (_: Throwable) {}
+    try {
+      mediaSession?.run {
+        try {
+          player.release()
+        } catch (t: Throwable) {
+          Log.w(TAG, "player.release failed in onDestroy", t)
+        }
+        try {
+          release()
+        } catch (t: Throwable) {
+          Log.w(TAG, "session.release failed in onDestroy", t)
+        }
+        mediaSession = null
+      }
+    } catch (t: Throwable) {
+      Log.e(TAG, "mediaSession release failed in onDestroy", t)
     }
     player = null
-    super.onDestroy()
+    pendingPlay = null
+    try {
+      super.onDestroy()
+    } catch (t: Throwable) {
+      Log.e(TAG, "super.onDestroy failed", t)
+    }
   }
 
   private fun broadcastStateUpdate() {
     val state = getCurrentStateJson()
+    // Listener callbacks run on the main looper, so this write is safe and
+    // keeps the fallback snapshot fresh for off-thread readers.
+    lastKnownStateJson = state
     eventListener?.onPlaybackStateChanged(state)
+    // Rhythm pattern: push, don't just wait to be polled. The WebView
+    // setInterval timer is throttled when the app is backgrounded, so a
+    // poll-only bridge delivers track changes late. Dispatch a CustomEvent
+    // on the same channel style as MainActivity.notifyUrisToFrontend; the
+    // React engine subscribes once and shares the parser with the poll
+    // fallback (poll stays as safety net at a lower rate).
+    try {
+      MainActivity.dispatchPlayerState(state)
+    } catch (t: Throwable) {
+      Log.w(TAG, "dispatchPlayerState push failed", t)
+    }
+  }
+
+  /**
+   * Reads the live player state. MUST run on the main (application) looper —
+   * Media3 1.5+ throws IllegalStateException otherwise. Callers on other
+   * threads must go through getCurrentStateJson(), which marshals here.
+   */
+  private fun snapshotStateLocked(): String {
+    val player = player ?: return "{}"
+    return try {
+      val currentItem = player.currentMediaItem
+      val currentTrackJson = if (currentItem != null) {
+        JSONObject(mediaItemToTrackJson(currentItem))
+      } else {
+        JSONObject.NULL
+      }
+
+      val json = JSONObject().apply {
+        put("isPlaying", player.isPlaying)
+        put("currentTimeMs", player.currentPosition.coerceAtLeast(0L))
+        val dur = player.duration
+        put("durationMs", if (dur != C.TIME_UNSET) dur.coerceAtLeast(0L) else 0L)
+        put("currentIndex", player.currentMediaItemIndex)
+        put("repeatMode", when (player.repeatMode) {
+          Player.REPEAT_MODE_ONE -> "one"
+          Player.REPEAT_MODE_ALL -> "all"
+          else -> "off"
+        })
+        put("shuffleMode", player.shuffleModeEnabled)
+        put("playbackRate", player.playbackParameters.speed)
+        put("volume", player.volume)
+        put("playbackState", player.playbackState)
+        val errCode = lastErrorCode
+        val errMsg = lastErrorMessage
+        if (errCode != null) {
+          put("errorCode", errCode)
+          put("errorMessage", errMsg ?: JSONObject.NULL)
+        }
+        put("currentTrack", currentTrackJson)
+      }
+      val rendered = json.toString()
+      lastKnownStateJson = rendered
+      rendered
+    } catch (t: Throwable) {
+      Log.e(TAG, "snapshotStateLocked error", t)
+      lastKnownStateJson ?: "{}"
+    }
+  }
+
+  private fun drainPendingPlay() {
+    val pending = pendingPlay ?: return
+    pendingPlay = null
+    Log.i(TAG, "Draining queued cold-start play request (index=${pending.startIndex})")
+    try {
+      // Reuse the same path as a normal play so queue/metadata handling
+      // cannot drift between cold-start and warm-start.
+      mainHandler.post {
+        try {
+          instance?.let { service ->
+            val player = service.player
+            if (player == null) {
+              Log.w(TAG, "Player still null while draining pending play")
+              return@post
+            }
+            lastErrorCode = null
+            lastErrorMessage = null
+            val mediaItems = ArrayList<MediaItem>()
+            if (!pending.playlistJson.isNullOrBlank()) {
+              val arr = JSONArray(pending.playlistJson)
+              for (i in 0 until arr.length()) {
+                mediaItems.add(buildMediaItem(arr.getJSONObject(i)))
+              }
+            }
+            if (mediaItems.isEmpty() && pending.trackJson.isNotBlank()) {
+              mediaItems.add(buildMediaItem(JSONObject(pending.trackJson)))
+            }
+            if (mediaItems.isEmpty()) return@post
+            val safeIndex = pending.startIndex.coerceIn(0, mediaItems.size - 1)
+            player.setMediaItems(mediaItems, safeIndex, 0L)
+            player.prepare()
+            player.play()
+          }
+        } catch (t: Throwable) {
+          Log.e(TAG, "Drain pending play failed", t)
+        }
+      }
+    } catch (t: Throwable) {
+      Log.e(TAG, "Could not schedule pending play drain", t)
+    }
+  }
+
+  private fun createNotificationChannel() {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+    try {
+      val channel = NotificationChannel(
+        CHANNEL_ID,
+        getString(R.string.media3_notification_channel_name),
+        NotificationManager.IMPORTANCE_LOW
+      ).apply {
+        description = getString(R.string.media3_notification_channel_description)
+        setShowBadge(false)
+      }
+      val nm = getSystemService(NotificationManager::class.java)
+      nm.createNotificationChannel(channel)
+    } catch (t: Throwable) {
+      Log.w(TAG, "createNotificationChannel failed", t)
+    }
+  }
+
+  private fun startForegroundWithPlaceholder() {
+    val notification = try {
+      NotificationCompat.Builder(this, CHANNEL_ID)
+        .setContentTitle(getString(R.string.app_name))
+        .setContentText(getString(R.string.service_starting))
+        .setSmallIcon(R.drawable.ic_notification)
+        .setOngoing(true)
+        .setCategory(NotificationCompat.CATEGORY_SERVICE)
+        .build()
+    } catch (t: Throwable) {
+      Log.w(TAG, "Placeholder notification build failed", t)
+      return
+    }
+    try {
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        startForeground(
+          NOTIFICATION_ID,
+          notification,
+          android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
+        )
+      } else {
+        startForeground(NOTIFICATION_ID, notification)
+      }
+      Log.d(TAG, "Early foreground promotion posted")
+    } catch (t: Throwable) {
+      // Background-start restriction (ForegroundServiceStartNotAllowedException
+      // on S+): Media3 will promote once playback actually starts from a
+      // foreground context. Keep a plain notification as fallback.
+      Log.w(TAG, "Early startForeground blocked, using fallback notification", t)
+      try {
+        val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        nm.notify(NOTIFICATION_ID, notification)
+      } catch (_: Throwable) {}
+    }
   }
 
   @Keep
   companion object {
     private const val TAG = "PlaybackService"
+    private const val NOTIFICATION_ID = 1001
+    private const val CHANNEL_ID = "RhythmMediaPlayback"
 
     @Volatile
     var instance: PlaybackService? = null
@@ -152,6 +412,41 @@ class PlaybackService : MediaSessionService() {
     var eventListener: PlaybackEventListener? = null
 
     private val mainHandler = Handler(Looper.getMainLooper())
+
+    // Cold-start race: JNI playTrack() can arrive before onCreate() sets
+    // `instance` (service start is async). Dropping it returns
+    // SERVICE_NOT_READY and the first tap "does nothing". Queue it and drain
+    // once the session exists (Rhythm avoids this via MediaController
+    // async-connect queuing; we emulate the same guarantee explicitly).
+    private data class PendingPlay(
+      val trackJson: String,
+      val playlistJson: String?,
+      val startIndex: Int
+    )
+
+    @Volatile
+    private var pendingPlay: PendingPlay? = null
+
+    @Volatile
+    private var lastErrorCode: String? = null
+
+    @Volatile
+    private var lastErrorMessage: String? = null
+
+    // Last good snapshot (written on the main thread). getCurrentStateJson()
+    // is called from the WebView JavaBridge thread where Media3 1.5+ throws
+    // IllegalStateException on direct Player access — the snapshot keeps the
+    // poll/push bridge alive even if the main-looper round-trip fails.
+    @Volatile
+    private var lastKnownStateJson: String? = null
+
+    private fun idleStateJson(): String = JSONObject().apply {
+      put("isPlaying", false)
+      put("currentTimeMs", 0)
+      put("durationMs", 0)
+      put("currentIndex", -1)
+      put("currentTrack", JSONObject.NULL)
+    }.toString()
 
     private fun ensureServiceStarted(context: Context) {
       if (instance == null) {
@@ -235,13 +530,24 @@ class PlaybackService : MediaSessionService() {
 
     /**
      * Play a single track or queue of tracks starting at startIndex.
+     * Cold-start safe: if the service instance is not yet alive the request
+     * is queued and drained in onCreate() instead of being dropped as
+     * SERVICE_NOT_READY (the previous "first tap does nothing" bug).
      */
     @JvmStatic
     fun playTrack(context: Context, trackJson: String, playlistJson: String?, startIndex: Int): String {
       ensureServiceStarted(context)
+      if (instance == null) {
+        pendingPlay = PendingPlay(trackJson, playlistJson, startIndex)
+        Log.i(TAG, "Service not ready; queued play request (index=$startIndex)")
+        return "PENDING"
+      }
       return runOnService { service ->
         val player = service.player ?: return@runOnService "PLAYER_NULL"
         try {
+          // A fresh explicit play supersedes any previous fatal error UI.
+          lastErrorCode = null
+          lastErrorMessage = null
           val mediaItems = ArrayList<MediaItem>()
 
           if (!playlistJson.isNullOrBlank()) {
@@ -274,9 +580,15 @@ class PlaybackService : MediaSessionService() {
       }
     }
 
+    // NOTE: only playTrack() calls ensureServiceStarted(). Control commands
+    // (pause/resume/seek/next/...) must NEVER restart the service: every
+    // startForegroundService() call re-arms the system's "call
+    // startForeground() in time" watchdog, and re-starting a live/paused
+    // service is exactly what produced ForegroundServiceDidNotStartInTime
+    // crashes. If the service is dead there is nothing to pause — the poll
+    // bridge reports idle and the next playTrack() starts it fresh.
     @JvmStatic
     fun pause(context: Context): String {
-      ensureServiceStarted(context)
       return runOnService { service ->
         service.player?.pause()
         "OK"
@@ -285,7 +597,6 @@ class PlaybackService : MediaSessionService() {
 
     @JvmStatic
     fun resume(context: Context): String {
-      ensureServiceStarted(context)
       return runOnService { service ->
         service.player?.play()
         "OK"
@@ -294,7 +605,6 @@ class PlaybackService : MediaSessionService() {
 
     @JvmStatic
     fun seekTo(context: Context, positionMs: Long): String {
-      ensureServiceStarted(context)
       return runOnService { service ->
         service.player?.seekTo(positionMs)
         "OK"
@@ -303,7 +613,6 @@ class PlaybackService : MediaSessionService() {
 
     @JvmStatic
     fun next(context: Context): String {
-      ensureServiceStarted(context)
       return runOnService { service ->
         service.player?.seekToNextMediaItem()
         "OK"
@@ -312,7 +621,6 @@ class PlaybackService : MediaSessionService() {
 
     @JvmStatic
     fun previous(context: Context): String {
-      ensureServiceStarted(context)
       return runOnService { service ->
         service.player?.seekToPreviousMediaItem()
         "OK"
@@ -321,7 +629,6 @@ class PlaybackService : MediaSessionService() {
 
     @JvmStatic
     fun setRepeatMode(context: Context, mode: String): String {
-      ensureServiceStarted(context)
       return runOnService { service ->
         val player = service.player ?: return@runOnService "PLAYER_NULL"
         when (mode.lowercase()) {
@@ -335,7 +642,6 @@ class PlaybackService : MediaSessionService() {
 
     @JvmStatic
     fun setShuffleMode(context: Context, enabled: Boolean): String {
-      ensureServiceStarted(context)
       return runOnService { service ->
         service.player?.shuffleModeEnabled = enabled
         "OK"
@@ -344,9 +650,21 @@ class PlaybackService : MediaSessionService() {
 
     @JvmStatic
     fun setPlaybackSpeed(context: Context, speed: Float): String {
-      ensureServiceStarted(context)
       return runOnService { service ->
         service.player?.setPlaybackSpeed(speed.coerceIn(0.25f, 4.0f))
+        "OK"
+      }
+    }
+
+    @JvmStatic
+    fun setVolume(context: Context, volume: Float): String {
+      return runOnService { service ->
+        // 0.0..1.0 device-volume fraction for the ExoPlayer instance.
+        // Values >1 (true boost/DSP) are intentionally NOT faked here:
+        // ExoPlayer.volume above 1 clips, Rhythm solves this with an
+        // AudioProcessor. The React booster maps 0-100% here and caps
+        // >100% at 1.0 until a native DSP path exists.
+        service.player?.volume = volume.coerceIn(0f, 1f)
         "OK"
       }
     }
@@ -362,64 +680,87 @@ class PlaybackService : MediaSessionService() {
 
     @JvmStatic
     fun getCurrentStateJson(): String {
-      val service = instance ?: return JSONObject().apply {
-        put("isPlaying", false)
-        put("currentTimeMs", 0)
-        put("durationMs", 0)
-        put("currentIndex", -1)
-        put("currentTrack", JSONObject.NULL)
-      }.toString()
-
-      val player = service.player ?: return "{}"
-
-      return try {
-        val currentItem = player.currentMediaItem
-        val currentTrackJson = if (currentItem != null) {
-          JSONObject(mediaItemToTrackJson(currentItem))
-        } else {
-          JSONObject.NULL
+      val service = instance ?: return lastKnownStateJson ?: idleStateJson()
+      // Media3 1.5+ throws IllegalStateException when the Player is touched
+      // off the application looper ("Player is accessed on the wrong thread").
+      // JNI state polls arrive on the WebView JavaBridge thread, so marshal
+      // to main exactly like runOnService() does. Never throw out of a JNI
+      // bridge — fall back to the last good snapshot instead.
+      if (Looper.myLooper() == Looper.getMainLooper()) {
+        return try {
+          service.snapshotStateLocked()
+        } catch (t: Throwable) {
+          Log.e(TAG, "snapshotStateLocked error", t)
+          lastKnownStateJson ?: "{}"
         }
-
-        val json = JSONObject().apply {
-          put("isPlaying", player.isPlaying)
-          put("currentTimeMs", player.currentPosition.coerceAtLeast(0L))
-          val dur = player.duration
-          put("durationMs", if (dur != C.TIME_UNSET) dur.coerceAtLeast(0L) else 0L)
-          put("currentIndex", player.currentMediaItemIndex)
-          put("repeatMode", when (player.repeatMode) {
-            Player.REPEAT_MODE_ONE -> "one"
-            Player.REPEAT_MODE_ALL -> "all"
-            else -> "off"
-          })
-          put("shuffleMode", player.shuffleModeEnabled)
-          put("playbackRate", player.playbackParameters.speed)
-          put("currentTrack", currentTrackJson)
+      }
+      var result: String? = null
+      val latch = java.util.concurrent.CountDownLatch(1)
+      try {
+        mainHandler.post {
+          try {
+            result = service.snapshotStateLocked()
+          } catch (t: Throwable) {
+            Log.w(TAG, "snapshot on main looper failed", t)
+          } finally {
+            latch.countDown()
+          }
         }
-        json.toString()
       } catch (t: Throwable) {
-        Log.e(TAG, "getCurrentStateJson error", t)
-        "{}"
+        Log.w(TAG, "getCurrentStateJson post failed", t)
+        return lastKnownStateJson ?: "{}"
+      }
+      return try {
+        if (latch.await(2, java.util.concurrent.TimeUnit.SECONDS)) {
+          result ?: (lastKnownStateJson ?: "{}")
+        } else {
+          Log.w(TAG, "getCurrentStateJson timed out waiting for main looper")
+          lastKnownStateJson ?: "{}"
+        }
+      } catch (ie: InterruptedException) {
+        Thread.currentThread().interrupt()
+        lastKnownStateJson ?: "{}"
       }
     }
 
     private fun runOnService(action: (PlaybackService) -> String): String {
       val service = instance
       if (service == null) {
-        Log.w(TAG, "PlaybackService instance is null; scheduling action on main looper")
+        Log.w(TAG, "PlaybackService instance is null for control action")
         return "SERVICE_NOT_READY"
       }
       return try {
         if (Looper.myLooper() == Looper.getMainLooper()) {
           action(service)
         } else {
+          // Tauri JNI calls arrive on Rust worker threads. The previous code
+          // posted async and returned "OK" before the action ran (fire-and-
+          // forget). Block briefly so pause/seek/next actually complete
+          // before the IPC returns — ExoPlayer itself is thread-safe, but all
+          // our player/session access stays on the main looper by design.
           var result = "OK"
+          var failure: Throwable? = null
+          val latch = java.util.concurrent.CountDownLatch(1)
           mainHandler.post {
             try {
               result = action(service)
             } catch (t: Throwable) {
+              failure = t
               Log.e(TAG, "Error running action on main looper", t)
+            } finally {
+              latch.countDown()
             }
           }
+          try {
+            if (!latch.await(4, java.util.concurrent.TimeUnit.SECONDS)) {
+              Log.w(TAG, "runOnService timed out waiting for main looper")
+              return "TIMEOUT"
+            }
+          } catch (ie: InterruptedException) {
+            Thread.currentThread().interrupt()
+            return "INTERRUPTED"
+          }
+          failure?.let { throw it }
           result
         }
       } catch (t: Throwable) {

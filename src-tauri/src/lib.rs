@@ -104,10 +104,12 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         commands::android_player_set_repeat_mode,
         commands::android_player_set_shuffle_mode,
         commands::android_player_set_speed,
+        commands::android_player_set_volume,
         commands::android_player_stop,
         commands::android_player_get_state,
         commands::get_pending_open_files,
         commands::resolve_audio_track,
+        commands::exit_app,
     ])
 }
 

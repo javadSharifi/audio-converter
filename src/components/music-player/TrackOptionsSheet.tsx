@@ -100,7 +100,7 @@ export function TrackOptionsSheet({ track, onClose }: TrackOptionsSheetProps): R
   }
 
   return (
-    <div className="fixed inset-0 z-[60] flex flex-col justify-end sm:items-center sm:justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-[80] flex flex-col justify-end sm:items-center sm:justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
       {/* Tap backdrop to dismiss */}
       <div className="absolute inset-0" onClick={onClose} />
 
