@@ -336,7 +336,8 @@ class MainActivity : TauriActivity() {
     @Volatile
     var lastSharedUri: String? = null
 
-    @Volatile
+    // Synchronized wrapper makes the list itself thread-safe; the reference
+    // is never reassigned so @Volatile (var-only) must not be used here.
     val pendingOpenedUris: MutableList<String> = java.util.Collections.synchronizedList(mutableListOf())
 
     @JvmStatic
