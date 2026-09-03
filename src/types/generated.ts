@@ -100,6 +100,10 @@ export const commands = {
 	androidPlayerStop: () => typedError<string, AppError>(__TAURI_INVOKE("android_player_stop")),
 	/**  Query live playback state from native Jetpack Media3. */
 	androidPlayerGetState: () => __TAURI_INVOKE<string>("android_player_get_state"),
+	/**  Query and drain any files/URIs opened by the OS (e.g. cold-start or before frontend event listeners registered). */
+	getPendingOpenFiles: () => typedError<string[], AppError>(__TAURI_INVOKE("get_pending_open_files")),
+	/**  Resolve a single audio file path or content:// URI into an AudioTrackInfo struct. */
+	resolveAudioTrack: (pathOrUri: string) => typedError<AudioTrackInfo, AppError>(__TAURI_INVOKE("resolve_audio_track", { pathOrUri })),
 };
 
 /* Types */

@@ -324,6 +324,34 @@ export async function androidPlayerGetState(): Promise<Record<string, unknown>> 
   }
 }
 
+export async function getPendingOpenFiles(): Promise<string[]> {
+  try {
+    const res = await commands.getPendingOpenFiles();
+    if (res.status === "error") {
+      console.warn("getPendingOpenFiles error:", res.error);
+      return [];
+    }
+    return res.data;
+  } catch (e) {
+    console.warn("getPendingOpenFiles failed:", e);
+    return [];
+  }
+}
+
+export async function resolveAudioTrack(pathOrUri: string): Promise<import("../types").AudioTrackInfo | null> {
+  try {
+    const res = await commands.resolveAudioTrack(pathOrUri);
+    if (res.status === "error") {
+      console.warn("resolveAudioTrack error:", res.error);
+      return null;
+    }
+    return res.data;
+  } catch (e) {
+    console.warn("resolveAudioTrack failed:", e);
+    return null;
+  }
+}
+
 
 
 

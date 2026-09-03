@@ -79,8 +79,8 @@ class MainActivity : TauriActivity() {
       // Check and request media permissions if needed
       checkAndRequestMediaPermissions()
 
-      // Handle incoming share sheet audio/video
-      handleIncomingShareIntent(intent)
+      // Handle incoming Open With (ACTION_VIEW) and share sheet (ACTION_SEND)
+      handleIncomingIntent(intent)
     } catch (e: Throwable) {
       Log.e(TAG, "Failed to initialize MainActivity", e)
     }
@@ -93,14 +93,20 @@ class MainActivity : TauriActivity() {
   override fun onNewIntent(intent: Intent) {
     super.onNewIntent(intent)
     setIntent(intent)
-    handleIncomingShareIntent(intent)
+    handleIncomingIntent(intent)
   }
 
-  private fun handleIncomingShareIntent(intent: Intent?) {
+  private fun handleIncomingIntent(intent: Intent?) {
     if (intent == null) return
-    val action = intent.action
-    val type = intent.type
-    if (Intent.ACTION_SEND == action && type != null) {
+    val action = intent.action ?: return
+    val uris = mutableListOf<String>()
+
+    if (Intent.ACTION_VIEW == action) {
+      intent.data?.let { uri ->
+        tryGrantUriPermission(uri, intent)
+        uris.add(uri.toString())
+      }
+    } else if (Intent.ACTION_SEND == action) {
       val uri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
         intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
       } else {
@@ -108,10 +114,62 @@ class MainActivity : TauriActivity() {
         intent.getParcelableExtra(Intent.EXTRA_STREAM)
       } ?: intent.data
 
-      if (uri != null) {
-        val uriStr = uri.toString()
-        lastSharedUri = uriStr
-        Log.i(TAG, "Received shared audio stream: $uriStr")
+      uri?.let {
+        tryGrantUriPermission(it, intent)
+        uris.add(it.toString())
+      }
+    } else if (Intent.ACTION_SEND_MULTIPLE == action) {
+      val list = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM, Uri::class.java)
+      } else {
+        @Suppress("DEPRECATION")
+        intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM)
+      }
+      list?.forEach { uri ->
+        if (uri != null) {
+          tryGrantUriPermission(uri, intent)
+          uris.add(uri.toString())
+        }
+      }
+    }
+
+    if (uris.isNotEmpty()) {
+      Log.i(TAG, "Received incoming open/share URIs: $uris")
+      lastSharedUri = uris.first()
+      synchronized(pendingOpenedUris) {
+        pendingOpenedUris.addAll(uris)
+      }
+      notifyUrisToFrontend(uris)
+    }
+  }
+
+  private fun tryGrantUriPermission(uri: Uri, intent: Intent) {
+    if (android.content.ContentResolver.SCHEME_CONTENT == uri.scheme) {
+      try {
+        val flags = intent.flags and (Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+        if (flags != 0) {
+          contentResolver.takePersistableUriPermission(uri, flags and Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+      } catch (_: SecurityException) {
+        // Not a persistable URI, but transient read permission is already granted via Intent flags
+      } catch (_: Throwable) {}
+    }
+  }
+
+  private fun notifyUrisToFrontend(uris: List<String>) {
+    val json = org.json.JSONArray(uris).toString()
+    val decor = window?.decorView ?: return
+    decor.post {
+      try {
+        val webView = findWebView(decor)
+        if (webView != null) {
+          val quoted = org.json.JSONObject.quote(json)
+          val js = "window.dispatchEvent(new CustomEvent('ac:open-files', { detail: { paths: JSON.parse($quoted) } }));"
+          webView.evaluateJavascript(js, null)
+          Log.i(TAG, "Dispatched ac:open-files to WebView: $json")
+        }
+      } catch (t: Throwable) {
+        Log.w(TAG, "Failed to dispatch ac:open-files to WebView", t)
       }
     }
   }
@@ -220,9 +278,21 @@ class MainActivity : TauriActivity() {
     private const val TAG = "AudioConverter"
     private const val PERMISSION_REQ_CODE = 1001
     private const val BUFFER_SIZE = 64 * 1024 // 64 KB buffer for fast stream transfers
-    private const val SAFETY_MARGIN_BYTES = 50L * 1024 * 1024 // 50 MB safety margin
-@Volatile
+    @Volatile
     var lastSharedUri: String? = null
+
+    @Volatile
+    val pendingOpenedUris: MutableList<String> = java.util.Collections.synchronizedList(mutableListOf())
+
+    @JvmStatic
+    @Keep
+    fun drainPendingOpenedUris(): String {
+      synchronized(pendingOpenedUris) {
+        val json = org.json.JSONArray(pendingOpenedUris).toString()
+        pendingOpenedUris.clear()
+        return json
+      }
+    }
 
     init {
       try {

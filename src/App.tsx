@@ -15,6 +15,7 @@ import { isLossy } from "./types";
 import { isAndroid } from "./utils/platform";
 import * as api from "./utils/tauri";
 import { useNativeDragDrop } from "./hooks/useNativeDragDrop";
+import { handleIncomingFiles } from "./utils/openWith";
 import { Loader2, Play, Lock } from "lucide-react";
 import type { QueueItem } from "./types";
 
@@ -124,20 +125,47 @@ export default function App(): React.JSX.Element {
     };
   }, []);
 
-  // Handle incoming shared media (e.g. from Telegram/WhatsApp on Android)
+  // Handle files opened via Open With, file association, or share sheet (cross-platform)
   useEffect(() => {
+    let unlistenOpenFiles: (() => void) | null = null;
+    void listen<string[]>("open-files", (e) => {
+      if (e.payload && e.payload.length > 0) {
+        void handleIncomingFiles(e.payload);
+      }
+    }).then((fn) => (unlistenOpenFiles = fn));
+
+    const handleCustomOpen = (e: Event) => {
+      const customEvent = e as CustomEvent<{ paths?: string[] }>;
+      const paths = customEvent.detail?.paths;
+      if (paths && paths.length > 0) {
+        void handleIncomingFiles(paths);
+      }
+    };
+
     const handleShared = (e: Event) => {
       const customEvent = e as CustomEvent<{ uri?: string }>;
       const uri = customEvent.detail?.uri;
       if (uri) {
-        void addPaths([uri]);
+        void handleIncomingFiles([uri]);
       }
     };
+
+    window.addEventListener("ac:open-files", handleCustomOpen);
     window.addEventListener("ac:shared-media", handleShared);
+
+    // Drain any cold-start files received before listeners mounted
+    void api.getPendingOpenFiles().then((pending) => {
+      if (pending && pending.length > 0) {
+        void handleIncomingFiles(pending);
+      }
+    });
+
     return () => {
+      unlistenOpenFiles?.();
+      window.removeEventListener("ac:open-files", handleCustomOpen);
       window.removeEventListener("ac:shared-media", handleShared);
     };
-  }, [addPaths]);
+  }, []);
 
   // Window-wide native drop
   const handleNativeDrop = useCallback(

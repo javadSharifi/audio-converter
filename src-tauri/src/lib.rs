@@ -62,7 +62,11 @@ pub extern "system" fn JNI_OnLoad(
     }
 }
 
-use tauri::{Manager, RunEvent};
+use tauri::{Emitter as _, Manager, RunEvent};
+
+/// Global queue holding files/URIs opened by the OS on cold start or single-instance activation.
+#[derive(Default)]
+pub struct AppOpenFileQueue(pub std::sync::Mutex<Vec<String>>);
 
 pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
     tauri_specta::Builder::<tauri::Wry>::new().commands(tauri_specta::collect_commands![
@@ -102,6 +106,8 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         commands::android_player_set_speed,
         commands::android_player_stop,
         commands::android_player_get_state,
+        commands::get_pending_open_files,
+        commands::resolve_audio_track,
     ])
 }
 
@@ -123,9 +129,33 @@ pub fn run() {
         );
     }
 
-    tauri::Builder::default()
+    let mut tauri_builder = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_opener::init());
+
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    {
+        tauri_builder = tauri_builder.plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.show();
+                let _ = w.set_focus();
+            }
+            let files: Vec<String> = argv
+                .into_iter()
+                .skip(1)
+                .filter(|arg| !arg.starts_with('-') && !arg.is_empty())
+                .collect();
+            if !files.is_empty() {
+                let queue = app.state::<AppOpenFileQueue>();
+                if let Ok(mut lock) = queue.0.lock() {
+                    lock.extend(files.clone());
+                }
+                let _ = app.emit("open-files", &files);
+            }
+        }));
+    }
+
+    tauri_builder
         .setup(|app| {
             let data_dir = app
                 .path()
@@ -133,6 +163,22 @@ pub fn run() {
                 .unwrap_or_else(|_| std::env::temp_dir().join("audio-converter"));
             settings::init_app_data_dir(data_dir);
             app.manage(queue::QueueManager::new(app.handle().clone()));
+
+            let open_queue = AppOpenFileQueue::default();
+            #[cfg(not(any(target_os = "android", target_os = "ios")))]
+            {
+                let cli_files: Vec<String> = std::env::args()
+                    .skip(1)
+                    .filter(|arg| !arg.starts_with('-') && !arg.is_empty())
+                    .collect();
+                if !cli_files.is_empty() {
+                    if let Ok(mut lock) = open_queue.0.lock() {
+                        lock.extend(cli_files);
+                    }
+                }
+            }
+            app.manage(open_queue);
+
             log_info!("app started");
             Ok(())
         })
@@ -140,10 +186,29 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building audio converter")
         .run(|app_handle, event| {
+            #[cfg(any(target_os = "macos", target_os = "ios", target_os = "android"))]
+            if let RunEvent::Opened { urls } = &event {
+                let paths: Vec<String> = urls
+                    .iter()
+                    .map(|u| {
+                        u.to_file_path()
+                            .ok()
+                            .map(|p| p.to_string_lossy().to_string())
+                            .unwrap_or_else(|| u.to_string())
+                    })
+                    .collect();
+                if !paths.is_empty() {
+                    let queue = app_handle.state::<AppOpenFileQueue>();
+                    if let Ok(mut lock) = queue.0.lock() {
+                        lock.extend(paths.clone());
+                    }
+                    let _ = app_handle.emit("open-files", &paths);
+                }
+            }
+
             // Kill any in-flight ffmpeg children when the app quits;
             // otherwise they outlive the process as orphans.
             if matches!(event, RunEvent::ExitRequested { .. } | RunEvent::Exit) {
-                use tauri::Manager as _;
                 app_handle.state::<queue::QueueManager>().cancel_all();
             }
         });

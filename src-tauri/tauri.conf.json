@@ -43,7 +43,23 @@
         "type": "embedBootstrapper"
       }
     },
-    "category": "Utility",
-    "shortDescription": "Video to audio converter"
+    "category": "Music",
+    "shortDescription": "Audio Converter and Music Player",
+    "fileAssociations": [
+      {
+        "ext": ["mp3", "flac", "wav", "m4a", "aac", "ogg", "opus", "aiff", "alac", "wma", "weba"],
+        "name": "Audio File",
+        "description": "Audio Media File",
+        "role": "Viewer",
+        "mimeType": "audio/*"
+      },
+      {
+        "ext": ["mp4", "mkv", "avi", "mov", "webm", "flv", "wmv"],
+        "name": "Video File",
+        "description": "Video Media File",
+        "role": "Viewer",
+        "mimeType": "video/*"
+      }
+    ]
   }
 }

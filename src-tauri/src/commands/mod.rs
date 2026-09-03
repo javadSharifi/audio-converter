@@ -758,6 +758,33 @@ pub fn android_player_get_state() -> String {
         .unwrap_or_else(|_| "{}".to_string())
 }
 
+/// Query and drain any files/URIs opened by the OS (e.g. cold-start or before frontend event listeners registered).
+#[tauri::command]
+#[specta::specta]
+pub async fn get_pending_open_files(
+    state: State<'_, crate::AppOpenFileQueue>,
+) -> Result<Vec<String>> {
+    let mut files = {
+        let mut lock = state.0.lock().unwrap();
+        std::mem::take(&mut *lock)
+    };
+    let android_files = crate::android_fs::drain_pending_opened_uris();
+    files.extend(android_files);
+    Ok(files)
+}
+
+/// Resolve a single audio file path or content:// URI into an AudioTrackInfo struct.
+#[tauri::command]
+#[specta::specta]
+pub async fn resolve_audio_track(path_or_uri: String) -> Result<crate::music_library::AudioTrackInfo> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::music_library::resolve_single_track(&path_or_uri)
+            .map_err(|e| AppError::Other(e))
+    })
+    .await
+    .map_err(|e| AppError::Other(format!("Task failed: {e}")))?
+}
+
 
 
 

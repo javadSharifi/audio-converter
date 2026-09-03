@@ -9,7 +9,7 @@ fn is_audio_ext(ext: &str) -> bool {
     AUDIO_EXTENSIONS.contains(&ext.to_ascii_lowercase().as_str())
 }
 
-fn mime_for_ext(ext: &str) -> String {
+pub fn mime_for_ext(ext: &str) -> String {
     match ext.to_ascii_lowercase().as_str() {
         "mp3" => "audio/mpeg".to_string(),
         "m4a" => "audio/mp4".to_string(),
@@ -24,7 +24,7 @@ fn mime_for_ext(ext: &str) -> String {
     }
 }
 
-fn find_local_cover_image(audio_path: &Path) -> Option<String> {
+pub fn find_local_cover_image(audio_path: &Path) -> Option<String> {
     // 1. Check same stem e.g. "Song Name.jpg" / "Song Name.png"
     for img_ext in &["jpg", "jpeg", "png", "webp"] {
         let candidate = audio_path.with_extension(img_ext);

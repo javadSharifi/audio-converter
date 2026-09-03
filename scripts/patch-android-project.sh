@@ -122,13 +122,46 @@ node -e '
   fs.writeFileSync(p, content);
 ' "$MANIFEST"
 
-# Share Sheet intent filter (audio/video)
+# Intent filters: Open With (ACTION_VIEW) and Share Sheet (ACTION_SEND / ACTION_SEND_MULTIPLE)
+if [ -f "$MANIFEST" ] && ! grep -q "android.intent.action.VIEW" "$MANIFEST"; then
+  node -e '
+    const fs = require("fs");
+    const p = process.argv[1];
+    let content = fs.readFileSync(p, "utf8");
+    const intentFilters = "\n            <!-- Open With (ACTION_VIEW) for audio files -->" +
+      "\n            <intent-filter>" +
+      "\n                <action android:name=\"android.intent.action.VIEW\" />" +
+      "\n                <category android:name=\"android.intent.category.DEFAULT\" />" +
+      "\n                <data android:mimeType=\"audio/*\" />" +
+      "\n                <data android:mimeType=\"application/ogg\" />" +
+      "\n                <data android:mimeType=\"application/x-ogg\" />" +
+      "\n                <data android:mimeType=\"application/flac\" />" +
+      "\n                <data android:mimeType=\"application/x-flac\" />" +
+      "\n            </intent-filter>" +
+      "\n            <intent-filter>" +
+      "\n                <action android:name=\"android.intent.action.VIEW\" />" +
+      "\n                <category android:name=\"android.intent.category.DEFAULT\" />" +
+      "\n                <data android:scheme=\"content\" />" +
+      "\n                <data android:mimeType=\"audio/*\" />" +
+      "\n            </intent-filter>" +
+      "\n            <intent-filter>" +
+      "\n                <action android:name=\"android.intent.action.VIEW\" />" +
+      "\n                <category android:name=\"android.intent.category.DEFAULT\" />" +
+      "\n                <data android:scheme=\"file\" />" +
+      "\n                <data android:mimeType=\"audio/*\" />" +
+      "\n            </intent-filter>";
+    content = content.replace(/<\/activity>/, intentFilters + "\n        $&");
+    fs.writeFileSync(p, content);
+  ' "$MANIFEST"
+fi
+
 if [ -f "$MANIFEST" ] && ! grep -q "android.intent.action.SEND" "$MANIFEST"; then
   node -e '
     const fs = require("fs");
     const p = process.argv[1];
     let content = fs.readFileSync(p, "utf8");
-    const shareFilter = "\n            <intent-filter>" +
+    const shareFilter = "\n            <!-- Share Sheet integration for audio and video files -->" +
+      "\n            <intent-filter>" +
       "\n                <action android:name=\"android.intent.action.SEND\" />" +
       "\n                <category android:name=\"android.intent.category.DEFAULT\" />" +
       "\n                <data android:mimeType=\"audio/*\" />" +

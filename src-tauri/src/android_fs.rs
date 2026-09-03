@@ -534,3 +534,22 @@ pub fn call_player_set_speed_jni(speed: f32) -> Result<String, String> {
 pub fn call_player_set_speed_jni(_speed: f32) -> Result<String, String> {
     Ok("OK".to_string())
 }
+
+/// Drain any URIs queued during cold start or received before WebView mounted.
+pub fn drain_pending_opened_uris() -> Vec<String> {
+    #[cfg(target_os = "android")]
+    {
+        if let Ok(json_str) = call_static_string_no_arg("drainPendingOpenedUris") {
+            if !json_str.is_empty() {
+                if let Ok(uris) = serde_json::from_str::<Vec<String>>(&json_str) {
+                    return uris;
+                }
+            }
+        }
+        Vec::new()
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        Vec::new()
+    }
+}
