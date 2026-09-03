@@ -332,6 +332,7 @@ class MainActivity : TauriActivity() {
     private const val TAG = "AudioConverter"
     private const val PERMISSION_REQ_CODE = 1001
     private const val BUFFER_SIZE = 64 * 1024 // 64 KB buffer for fast stream transfers
+    private const val SAFETY_MARGIN_BYTES = 50L * 1024 * 1024 // 50 MB safety margin
     @Volatile
     var lastSharedUri: String? = null
 
