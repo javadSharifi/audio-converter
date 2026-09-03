@@ -187,6 +187,9 @@ export const en = {
   musicPlayerPlaceholderDesc: "Music player and playback features will be available here.",
   switchToConverter: "Switch to Audio Converter",
   switchToPlayer: "Switch to Music Player",
+  converterGuideTitle: "Audio Converter is here!",
+  converterGuideDesc: "Tap here anytime to convert formats, compress, or trim your audio files.",
+  converterGuideGotIt: "Got it",
 
   // Music Player Navigation & Tabs
   playerNavForYou: "For You",
@@ -297,6 +300,10 @@ export const en = {
   deselectAll: "Deselect",
   convertSelected: "Convert",
   deleteSelected: "Delete",
+  likeSelected: "Add to Liked",
+  unlikeSelected: "Remove from Liked",
+  multiLikedSuccess: "{count} songs added to Liked",
+  multiUnlikedSuccess: "{count} songs removed from Liked",
   deleteMultipleConfirm: "Delete {count} songs?",
   deleteMultipleDesc: "These audio files will be permanently deleted from your device storage.",
   multiAddedToAlbum: "{count} songs added to {name}",
@@ -312,6 +319,10 @@ export const en = {
   previewRingtone: "Preview",
   confirmSetRingtone: "Set as Ringtone",
   ringtoneTrimming: "Setting Ringtone...",
+  resetSpeed: "Reset Speed",
+  resetBoost: "Reset Boost",
+  defaultSpeed: "Default (1.0x)",
+  exitSelection: "Cancel",
 } as const;
 
 export type TranslationKey = keyof typeof en;

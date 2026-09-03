@@ -184,12 +184,15 @@ export const fa: Record<TranslationKey, string> = {
 
   // Tool Switcher & Music Player
   toolConverter: "مبدل صدا",
-  toolPlayer: "پخش‌کننده موسیقی",
-  musicPlayerTitle: "پخش‌کننده موسیقی",
+  toolPlayer: "موزیک‌پلیر",
+  musicPlayerTitle: "موزیک‌پلیر",
   musicPlayerSubtitle: "محیط پخش‌کننده و آرشیو موسیقی",
   musicPlayerPlaceholderDesc: "امکانات پخش موسیقی، مدیریت لیست پخش و آرشیو فایل‌ها به‌زودی در این بخش در دسترس خواهند بود.",
   switchToConverter: "تغییر به مبدل صدا",
-  switchToPlayer: "تغییر به پخش‌کننده موسیقی",
+  switchToPlayer: "تغییر به موزیک‌پلیر",
+  converterGuideTitle: "مبدل صدا اینجاست!",
+  converterGuideDesc: "برای تبدیل فرمت‌ها، فشرده‌سازی و ویرایش فایل‌های صوتی، هر زمان می‌توانید روی این بخش ضربه بزنید.",
+  converterGuideGotIt: "متوجه شدم",
 
   // Music Player Navigation & Tabs
   playerNavForYou: "برای شما",
@@ -300,6 +303,10 @@ export const fa: Record<TranslationKey, string> = {
   deselectAll: "لغو انتخاب",
   convertSelected: "کانورت",
   deleteSelected: "حذف",
+  likeSelected: "افزودن به علاقه‌مندی‌ها",
+  unlikeSelected: "حذف از علاقه‌مندی‌ها",
+  multiLikedSuccess: "{count} آهنگ به لیست علاقه‌مندی‌ها اضافه شد",
+  multiUnlikedSuccess: "{count} آهنگ از لیست علاقه‌مندی‌ها حذف شد",
   deleteMultipleConfirm: "آیا {count} آهنگ انتخاب شده حذف شوند؟",
   deleteMultipleDesc: "این فایل‌های صوتی به طور دائم از حافظه دستگاه شما پاک خواهند شد.",
   multiAddedToAlbum: "{count} آهنگ به آلبوم {name} اضافه شد",
@@ -315,4 +322,8 @@ export const fa: Record<TranslationKey, string> = {
   previewRingtone: "پیش‌نمایش",
   confirmSetRingtone: "ثبت به عنوان آهنگ زنگ",
   ringtoneTrimming: "در حال تنظیم آهنگ زنگ...",
+  resetSpeed: "ریست سرعت",
+  resetBoost: "ریست بوست",
+  defaultSpeed: "پیش‌فرض (۱.۰x)",
+  exitSelection: "انصراف",
 };

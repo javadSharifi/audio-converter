@@ -6,11 +6,26 @@ import { useMusicPlayerStore } from "../../../stores/useMusicPlayerStore";
 import { useAppStore } from "../../../stores/useAppStore";
 import type { AudioTrackInfo } from "../../../types";
 
-vi.mock("../../../utils/tauri", () => ({
-  setAsRingtone: vi.fn(async () => {}),
-  waveformPeaks: vi.fn(async () => []),
-  resolveMediaPaths: vi.fn(async (paths: string[]) => paths.map((p) => ({ path: p, resolved: p }))),
-}));
+vi.mock("../../../utils/tauri", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../../utils/tauri")>();
+  return {
+    ...actual,
+    setAsRingtone: vi.fn(async () => {}),
+    waveformPeaks: vi.fn(async () => []),
+    resolveMediaPaths: vi.fn(async (paths: string[]) => paths.map((p) => ({ path: p, resolved: p }))),
+    androidPlayerPlay: vi.fn(async () => "OK"),
+    androidPlayerPause: vi.fn(async () => "OK"),
+    androidPlayerResume: vi.fn(async () => "OK"),
+    androidPlayerSeekTo: vi.fn(async () => "OK"),
+    androidPlayerNext: vi.fn(async () => "OK"),
+    androidPlayerPrevious: vi.fn(async () => "OK"),
+    androidPlayerSetRepeatMode: vi.fn(async () => "OK"),
+    androidPlayerSetShuffleMode: vi.fn(async () => "OK"),
+    androidPlayerSetSpeed: vi.fn(async () => "OK"),
+    androidPlayerStop: vi.fn(async () => "OK"),
+    androidPlayerGetState: vi.fn(async () => ({})),
+  };
+});
 
 vi.mock("../../../utils/platform", () => ({
   isAndroid: vi.fn(() => true),

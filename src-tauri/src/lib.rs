@@ -91,6 +91,17 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         commands::delete_audio_track,
         commands::set_as_ringtone,
         commands::share_audio_track,
+        commands::android_player_play,
+        commands::android_player_pause,
+        commands::android_player_resume,
+        commands::android_player_seek_to,
+        commands::android_player_next,
+        commands::android_player_previous,
+        commands::android_player_set_repeat_mode,
+        commands::android_player_set_shuffle_mode,
+        commands::android_player_set_speed,
+        commands::android_player_stop,
+        commands::android_player_get_state,
     ])
 }
 

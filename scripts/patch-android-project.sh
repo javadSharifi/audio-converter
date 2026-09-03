@@ -69,29 +69,56 @@ if [ -f "$GRADLE_FILE" ] && ! grep -q "useLegacyPackaging" "$GRADLE_FILE"; then
   rm -f "$GRADLE_FILE.bak"
 fi
 
-# --- 3. Runtime media permissions (per-permission idempotent) ---
+if [ -f "$GRADLE_FILE" ] && ! grep -q "media3-exoplayer" "$GRADLE_FILE"; then
+  node -e '
+    const fs = require("fs");
+    const p = process.argv[1];
+    let content = fs.readFileSync(p, "utf8");
+    const media3Deps = "\n    // Media3 (ExoPlayer, MediaSession, UI)\n    val media3Version = \"1.5.1\"\n    implementation(\"androidx.media3:media3-exoplayer:$media3Version\")\n    implementation(\"androidx.media3:media3-session:$media3Version\")\n    implementation(\"androidx.media3:media3-ui:$media3Version\")\n";
+    content = content.replace(/dependencies\s*\{/, "$&" + media3Deps);
+    fs.writeFileSync(p, content);
+  ' "$GRADLE_FILE"
+fi
+
+# --- 3. Runtime media permissions & PlaybackService (per-permission idempotent) ---
 node -e '
   const fs = require("fs");
   const p = process.argv[1];
   let content = fs.readFileSync(p, "utf8");
   const need = [];
-  // Exact tag match — plain includes() would false-positive on permission-name prefixes
-  // (e.g. FOREGROUND_SERVICE matches FOREGROUND_SERVICE_MEDIA_PROJECTION).
   const has = (perm) =>
-    new RegExp(`<uses-permission\\s+android:name="${perm.replace(/\./g, "\\.")}"\\s*/>`).test(content);
+    new RegExp(`<uses-permission[^>]*android:name="${perm.replace(/\\./g, "\\\\.")}"`).test(content);
   const add = (perm) => { if (!has(perm)) need.push(perm); };
   add("android.permission.READ_MEDIA_AUDIO");
   add("android.permission.READ_MEDIA_VIDEO");
   add("android.permission.READ_EXTERNAL_STORAGE");
   add("android.permission.WRITE_EXTERNAL_STORAGE");
-  if (need.length === 0) process.exit(0);
-  const perms =
-    (need.includes("android.permission.READ_MEDIA_AUDIO") ? "\n    <uses-permission android:name=\"android.permission.READ_MEDIA_AUDIO\" />" : "") +
-    (need.includes("android.permission.READ_MEDIA_VIDEO") ? "\n    <uses-permission android:name=\"android.permission.READ_MEDIA_VIDEO\" />" : "") +
-    (need.includes("android.permission.READ_EXTERNAL_STORAGE") ? "\n    <uses-permission android:name=\"android.permission.READ_EXTERNAL_STORAGE\" android:maxSdkVersion=\"32\" />" : "") +
-    (need.includes("android.permission.WRITE_EXTERNAL_STORAGE") ? "\n    <!-- MediaStore publishing of outputs on Android 9 and below -->\n    <uses-permission android:name=\"android.permission.WRITE_EXTERNAL_STORAGE\" android:maxSdkVersion=\"28\" />" : "") +
+  add("android.permission.INTERNET");
+  add("android.permission.POST_NOTIFICATIONS");
+  add("android.permission.FOREGROUND_SERVICE");
+  add("android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK");
+  add("android.permission.WAKE_LOCK");
+  if (need.length > 0) {
+    const perms =
+      (need.includes("android.permission.READ_MEDIA_AUDIO") ? "\n    <uses-permission android:name=\"android.permission.READ_MEDIA_AUDIO\" />" : "") +
+      (need.includes("android.permission.READ_MEDIA_VIDEO") ? "\n    <uses-permission android:name=\"android.permission.READ_MEDIA_VIDEO\" />" : "") +
+      (need.includes("android.permission.READ_EXTERNAL_STORAGE") ? "\n    <uses-permission android:name=\"android.permission.READ_EXTERNAL_STORAGE\" android:maxSdkVersion=\"32\" />" : "") +
+      (need.includes("android.permission.WRITE_EXTERNAL_STORAGE") ? "\n    <!-- MediaStore publishing of outputs on Android 9 and below -->\n    <uses-permission android:name=\"android.permission.WRITE_EXTERNAL_STORAGE\" android:maxSdkVersion=\"28\" />" : "") +
+      (need.includes("android.permission.INTERNET") ? "\n    <uses-permission android:name=\"android.permission.INTERNET\" />" : "") +
+      (need.includes("android.permission.POST_NOTIFICATIONS") ? "\n    <uses-permission android:name=\"android.permission.POST_NOTIFICATIONS\" />" : "") +
+      (need.includes("android.permission.FOREGROUND_SERVICE") ? "\n    <uses-permission android:name=\"android.permission.FOREGROUND_SERVICE\" />" : "") +
+      (need.includes("android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK") ? "\n    <uses-permission android:name=\"android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK\" />" : "") +
+      (need.includes("android.permission.WAKE_LOCK") ? "\n    <uses-permission android:name=\"android.permission.WAKE_LOCK\" />" : "");
 
-  content = content.replace(/<manifest[^>]*>/, (m) => m + perms);
+    content = content.replace(/<manifest[^>]*>/, (m) => m + perms);
+  }
+
+  // Inject PlaybackService into application tag if missing
+  if (!content.includes("PlaybackService")) {
+    const serviceTag = "\n        <!-- Media3 Foreground Playback Service -->\n        <service\n            android:name=\".PlaybackService\"\n            android:foregroundServiceType=\"mediaPlayback\"\n            android:exported=\"true\">\n            <intent-filter>\n                <action android:name=\"androidx.media3.session.MediaSessionService\" />\n                <action android:name=\"android.media.browse.MediaBrowserService\" />\n            </intent-filter>\n        </service>\n";
+    content = content.replace(/<\/application>/, serviceTag + "    $&");
+  }
+
   fs.writeFileSync(p, content);
 ' "$MANIFEST"
 
@@ -120,8 +147,8 @@ fi
 
 # --- 4. Custom Kotlin sources & ProGuard rules (JNI bridge preservation) ------
 mkdir -p "$GEN/app/src/main/java/com/audioconverter/app"
-if [ -f "$ROOT/src-tauri/android/MainActivity.kt" ]; then
-  cp -f "$ROOT/src-tauri/android/MainActivity.kt" "$GEN/app/src/main/java/com/audioconverter/app/MainActivity.kt"
+if [ -d "$ROOT/src-tauri/android" ]; then
+  cp -rf "$ROOT/src-tauri/android"/*.kt "$GEN/app/src/main/java/com/audioconverter/app/" 2>/dev/null || true
 fi
 
 cat > "$GEN/app/proguard-rules.pro" << 'EOF'
@@ -134,11 +161,19 @@ cat > "$GEN/app/proguard-rules.pro" << 'EOF'
     public <methods>;
     *;
 }
+-keep class com.audioconverter.app.PlaybackService {
+    public <methods>;
+    *;
+}
 -keepclassmembers class com.audioconverter.app.MainActivity {
     public static <methods>;
     *;
 }
 -keepclassmembers class com.audioconverter.app.MainActivity$Companion {
+    public <methods>;
+    *;
+}
+-keepclassmembers class com.audioconverter.app.PlaybackService {
     public <methods>;
     *;
 }

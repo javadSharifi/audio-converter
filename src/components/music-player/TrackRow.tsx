@@ -2,30 +2,10 @@ import { memo, useState, useRef } from "react";
 import { useAppStore } from "../../stores/useAppStore";
 import { useMusicPlayerStore, isTrackLiked } from "../../stores/useMusicPlayerStore";
 import { translate } from "../../i18n";
-import { formatBytes } from "../../utils/format";
 import { TrackCover } from "./TrackCover";
 import { TrackOptionsSheet } from "./TrackOptionsSheet";
 import { Heart, Play, Pause, MoreVertical, Check, Square } from "lucide-react";
 import type { AudioTrackInfo } from "../../types";
-
-function formatTimestamp(timestampMs: number, lang: "en" | "fa"): string {
-  if (!timestampMs) return "";
-  const diffHours = (Date.now() - timestampMs) / (1000 * 60 * 60);
-  const date = new Date(timestampMs);
-
-  if (diffHours < 24) {
-    return lang === "fa" ? "امروز" : "Today";
-  }
-  if (diffHours < 48) {
-    return lang === "fa" ? "دیروز" : "Yesterday";
-  }
-
-  return date.toLocaleDateString(lang === "fa" ? "fa-IR" : "en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
-}
 
 interface TrackRowProps {
   track: AudioTrackInfo;
@@ -35,7 +15,6 @@ interface TrackRowProps {
 export const TrackRow = memo(function TrackRow({ track, playlist }: TrackRowProps): React.JSX.Element {
   const lang = useAppStore((s) => s.lang);
   const likedPaths = useMusicPlayerStore((s) => s.likedPaths);
-  const toggleLike = useMusicPlayerStore((s) => s.toggleLike);
   const currentTrack = useMusicPlayerStore((s) => s.currentTrack);
   const isPlaying = useMusicPlayerStore((s) => s.isPlaying);
   const playTrack = useMusicPlayerStore((s) => s.playTrack);
@@ -60,11 +39,6 @@ export const TrackRow = memo(function TrackRow({ track, playlist }: TrackRowProp
     currentTrack !== null &&
     (currentTrack.id === track.id || currentTrack.uri === track.uri);
   const isNowPlaying = isCurrentTrack && isPlaying;
-
-  const formattedDate = formatTimestamp(
-    Math.max(track.createdTimestampMs || 0, track.modifiedTimestampMs || 0),
-    lang,
-  );
 
   // Long-press and hold detection
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -167,33 +141,8 @@ export const TrackRow = memo(function TrackRow({ track, playlist }: TrackRowProp
             : "hover:bg-black/[0.03] dark:hover:bg-white/[0.04] border border-transparent"
         }`}
       >
-        {/* Left: Checkbox (in selection mode) + Album Art Cover & Metadata */}
+        {/* Leading: Album Art Cover & Metadata */}
         <div className="flex items-center gap-3 min-w-0 flex-1">
-          {/* Multi-Select Checkbox */}
-          {isSelectionMode && (
-            <div
-              onClick={(e) => {
-                e.stopPropagation();
-                toggleSelectTrack(track);
-              }}
-              className="shrink-0 flex items-center justify-center cursor-pointer animate-in zoom-in-90 duration-150"
-            >
-              <div
-                className={`flex h-5 w-5 items-center justify-center rounded-lg border transition-all ${
-                  isSelected
-                    ? "bg-orange-500 border-orange-500 text-white shadow-sm"
-                    : "border-black/20 dark:border-white/20 bg-black/[0.04] dark:bg-white/[0.06] text-transparent"
-                }`}
-              >
-                {isSelected ? (
-                  <Check className="h-3.5 w-3.5 stroke-[3]" />
-                ) : (
-                  <Square className="h-3.5 w-3.5 opacity-0" />
-                )}
-              </div>
-            </div>
-          )}
-
           <div className="shrink-0">
             <TrackCover track={track} size="md" />
           </div>
@@ -210,6 +159,14 @@ export const TrackRow = memo(function TrackRow({ track, playlist }: TrackRowProp
                 {track.title || track.name}
               </span>
 
+              {/* Subtle mini Heart icon when liked */}
+              {isLiked && (
+                <Heart
+                  className="h-3 w-3 text-rose-500 fill-rose-500 shrink-0"
+                  strokeWidth={0}
+                />
+              )}
+
               {/* Equalizer icon badge next to title */}
               {!isSelectionMode && isNowPlaying && (
                 <div
@@ -223,22 +180,36 @@ export const TrackRow = memo(function TrackRow({ track, playlist }: TrackRowProp
               )}
             </div>
 
-            <div className="flex items-center gap-2 text-[11px] text-zinc-400 dark:text-zinc-500 truncate mt-0.5">
-              {track.artist && <span>{track.artist}</span>}
-              {track.artist && <span>•</span>}
-              <span className="uppercase font-semibold text-[10px] text-zinc-400 dark:text-zinc-500">
-                {track.format}
-              </span>
-              <span>•</span>
-              <span>{formatBytes(track.sizeBytes)}</span>
-              {formattedDate && <span>•</span>}
-              {formattedDate && <span>{formattedDate}</span>}
+            <div className="flex items-center text-[11px] text-zinc-400 dark:text-zinc-500 truncate mt-0.5">
+              <span>{track.artist || (lang === "fa" ? "هنرمند ناشناس" : "Unknown Artist")}</span>
             </div>
           </div>
         </div>
 
-        {/* Right Actions: Play / Pause Button, Like Button & 3-Dots Button */}
-        {!isSelectionMode && (
+        {/* Trailing Side: Selection Checkbox (in Selection Mode) OR Play / Pause & 3-Dots Buttons */}
+        {isSelectionMode ? (
+          <div
+            onClick={(e) => {
+              e.stopPropagation();
+              toggleSelectTrack(track);
+            }}
+            className="shrink-0 flex items-center justify-center p-1 cursor-pointer animate-in zoom-in-90 duration-150"
+          >
+            <div
+              className={`flex h-6 w-6 items-center justify-center rounded-xl border-2 transition-all duration-200 ${
+                isSelected
+                  ? "bg-orange-500 border-orange-500 text-white shadow-md shadow-orange-500/30 scale-105"
+                  : "border-zinc-300 dark:border-zinc-600 bg-black/[0.03] dark:bg-white/[0.05] text-transparent hover:border-orange-400"
+              }`}
+            >
+              {isSelected ? (
+                <Check className="h-3.5 w-3.5 stroke-[3]" />
+              ) : (
+                <Square className="h-3.5 w-3.5 opacity-0" />
+              )}
+            </div>
+          </div>
+        ) : (
           <div className="flex items-center gap-1 shrink-0">
             {/* Play / Pause Button */}
             <button
@@ -246,7 +217,7 @@ export const TrackRow = memo(function TrackRow({ track, playlist }: TrackRowProp
               onClick={handlePlayButtonClick}
               title={translate(lang, isNowPlaying ? "pauseSong" : "playSong")}
               aria-label={translate(lang, isNowPlaying ? "pauseSong" : "playSong")}
-              className={`flex h-9 w-9 items-center justify-center rounded-xl transition-all duration-200 cursor-pointer active:scale-90 shadow-sm ${
+              className={`flex h-8 w-8 items-center justify-center rounded-xl transition-all duration-200 cursor-pointer active:scale-90 shadow-sm ${
                 isNowPlaying
                   ? "bg-gradient-to-r from-orange-500 to-amber-500 text-white shadow-orange-500/25 scale-105"
                   : isCurrentTrack
@@ -255,33 +226,10 @@ export const TrackRow = memo(function TrackRow({ track, playlist }: TrackRowProp
               }`}
             >
               {isNowPlaying ? (
-                <Pause className="h-4 w-4 fill-current" />
+                <Pause className="h-3.5 w-3.5 fill-current" />
               ) : (
-                <Play className="h-4 w-4 fill-current" />
+                <Play className="h-3.5 w-3.5 fill-current ms-0.5" />
               )}
-            </button>
-
-            {/* Heart / Like Button */}
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                toggleLike(track);
-              }}
-              title={translate(lang, isLiked ? "unlikeTrack" : "likeTrack")}
-              aria-label={translate(lang, isLiked ? "unlikeTrack" : "likeTrack")}
-              className={`flex h-9 w-9 items-center justify-center rounded-xl transition-all duration-200 cursor-pointer active:scale-90 ${
-                isLiked
-                  ? "text-rose-500 bg-rose-500/10 dark:bg-rose-500/20 shadow-sm"
-                  : "text-zinc-400 hover:text-rose-500 hover:bg-rose-500/10 dark:hover:bg-rose-500/10"
-              }`}
-            >
-              <Heart
-                className={`h-4 w-4 transition-transform duration-200 ${
-                  isLiked ? "fill-rose-500 scale-110" : ""
-                }`}
-                strokeWidth={isLiked ? 0 : 2}
-              />
             </button>
 
             {/* 3-Dots More Options Button */}
@@ -293,7 +241,7 @@ export const TrackRow = memo(function TrackRow({ track, playlist }: TrackRowProp
               }}
               title={translate(lang, "moreOptions")}
               aria-label={translate(lang, "moreOptions")}
-              className="flex h-9 w-9 items-center justify-center rounded-xl text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-200 hover:bg-black/[0.04] dark:hover:bg-white/[0.06] transition-all duration-200 cursor-pointer active:scale-90"
+              className="flex h-8 w-8 items-center justify-center rounded-xl text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-200 hover:bg-black/[0.04] dark:hover:bg-white/[0.06] transition-all duration-200 cursor-pointer active:scale-90"
             >
               <MoreVertical className="h-4 w-4" />
             </button>

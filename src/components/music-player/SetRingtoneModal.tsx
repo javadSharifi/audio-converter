@@ -737,6 +737,7 @@ export function SetRingtoneModal({
         {/* ============================================================= */}
         <div className="relative flex flex-col gap-1.5">
           <div
+            dir="ltr"
             ref={wrapRef}
             className={`relative select-none overflow-hidden rounded-2xl bg-black/[0.04] p-1.5 border border-black/5 dark:bg-black/50 dark:border-white/5 shadow-inner ${
               peaks ? "cursor-ew-resize" : ""
@@ -749,11 +750,11 @@ export function SetRingtoneModal({
           >
             <canvas ref={canvasRef} className="h-full w-full touch-none rounded-xl" />
 
-            {/* Floating Handle Time Tags */}
-            <div className="absolute top-2 start-3 px-2 py-0.5 rounded-lg bg-black/60 backdrop-blur-md text-[10px] font-mono font-bold text-amber-400 border border-amber-400/20 pointer-events-none">
+            {/* Floating Handle Time Tags (Strictly Left to Right) */}
+            <div className="absolute top-2 left-3 px-2 py-0.5 rounded-lg bg-black/60 backdrop-blur-md text-[10px] font-mono font-bold text-amber-400 border border-amber-400/20 pointer-events-none">
               {formatClock(selStart)}
             </div>
-            <div className="absolute top-2 end-3 px-2 py-0.5 rounded-lg bg-black/60 backdrop-blur-md text-[10px] font-mono font-bold text-amber-400 border border-amber-400/20 pointer-events-none">
+            <div className="absolute top-2 right-3 px-2 py-0.5 rounded-lg bg-black/60 backdrop-blur-md text-[10px] font-mono font-bold text-amber-400 border border-amber-400/20 pointer-events-none">
               {formatClock(selEnd)}
             </div>
 

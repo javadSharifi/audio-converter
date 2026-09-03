@@ -23,9 +23,10 @@ import {
   Search,
   X,
   Volume2,
+  RotateCcw,
 } from "lucide-react";
 
-const SPEED_PRESETS = [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 3.0, 4.0];
+const SPEED_PRESETS = [0.5, 1.0, 1.5, 2.0, 2.5];
 const BOOST_PRESETS = [
   { label: "100%", value: 100 },
   { label: "150%", value: 150 },
@@ -115,12 +116,12 @@ export function NowPlayingView(): React.JSX.Element | null {
   };
 
   return (
-    <div className="absolute inset-0 z-40 flex flex-col w-full h-full min-h-0 bg-white/95 dark:bg-zinc-900/95 backdrop-blur-2xl rounded-3xl p-4 sm:p-5 border border-black/10 dark:border-white/10 shadow-2xl animate-in zoom-in-95 duration-200 select-none overflow-hidden justify-between">
+    <div className="fixed inset-0 z-50 flex flex-col w-full h-full min-h-0 bg-zinc-50 dark:bg-[#09090b] text-zinc-900 dark:text-zinc-100 p-4 sm:p-6 pb-24 sm:pb-28 select-none overflow-hidden justify-between animate-in slide-in-from-bottom duration-300">
       {/* Top Ambient Glow */}
-      <div className="absolute top-0 inset-x-0 h-40 bg-gradient-to-b from-orange-500/10 via-amber-500/5 to-transparent pointer-events-none" />
+      <div className="absolute top-0 inset-x-0 h-48 bg-gradient-to-b from-orange-500/15 via-amber-500/5 to-transparent pointer-events-none" />
 
       {/* Main Container: Split into 2 columns on desktop (lg:flex-row) */}
-      <div className="relative z-10 flex flex-col lg:flex-row flex-1 w-full min-h-0 gap-6 overflow-hidden">
+      <div className="relative z-10 flex flex-col lg:flex-row flex-1 w-full min-h-0 gap-6 overflow-hidden max-w-5xl mx-auto">
         {/* =============================================================== */}
         {/* LEFT COLUMN: MAIN MUSIC PLAYER                                  */}
         {/* =============================================================== */}
@@ -129,14 +130,15 @@ export function NowPlayingView(): React.JSX.Element | null {
           {/* 1. TOP HEADER BAR                                               */}
           {/* =============================================================== */}
           <div className="relative z-10 flex items-center justify-between pb-2 shrink-0">
-            {/* Collapse / Minimize Button */}
+            {/* Collapse / Minimize / Back Button */}
             <button
               type="button"
               onClick={() => setFullscreenOpen(false)}
               title={translate(lang, "collapsePlayer")}
-              className="flex h-9 w-9 items-center justify-center rounded-2xl bg-black/[0.04] hover:bg-black/10 dark:bg-white/[0.06] dark:hover:bg-white/15 text-zinc-700 dark:text-zinc-200 transition-colors cursor-pointer active:scale-90"
+              className="flex items-center gap-1.5 h-9 px-3 rounded-2xl bg-black/[0.05] hover:bg-black/10 dark:bg-white/[0.08] dark:hover:bg-white/15 text-zinc-800 dark:text-zinc-200 transition-all cursor-pointer active:scale-95 shadow-sm"
             >
-              <ChevronDown className="h-5 w-5 stroke-[2.2]" />
+              <ChevronDown className="h-4 w-4 stroke-[2.5]" />
+              <span className="text-xs font-bold">{lang === "fa" ? "بازگشت" : "Back"}</span>
             </button>
 
             {/* Center Info */}
@@ -170,109 +172,15 @@ export function NowPlayingView(): React.JSX.Element | null {
           </div>
 
           {/* =============================================================== */}
-          {/* 3. TRACK METADATA & LIKE BUTTON ROW                             */}
+          {/* 3. TOOLBAR: Converter, Speed, Booster, Repeat, Shuffle, Queue   */}
           {/* =============================================================== */}
-          <div className="relative z-10 flex items-center justify-between gap-4 pt-2 pb-1 shrink-0">
-            <div className="flex flex-col min-w-0 flex-1">
-              <h1 className="text-lg sm:text-xl font-extrabold text-zinc-900 dark:text-zinc-100 tracking-tight truncate">
-                {currentTrack.title || currentTrack.name}
-              </h1>
-              <p className="text-xs font-semibold text-zinc-500 dark:text-zinc-400 truncate mt-0.5">
-                {currentTrack.artist || "Unknown Artist"}
-              </p>
-            </div>
-
-            {/* Heart/Like Button */}
-            <button
-              type="button"
-              onClick={() => toggleLike(currentTrack)}
-              title={translate(lang, isLiked ? "unlikeTrack" : "likeTrack")}
-              className={`relative flex h-11 w-11 items-center justify-center rounded-2xl transition-all duration-200 cursor-pointer active:scale-90 ${
-                isLiked
-                  ? "text-rose-500 bg-rose-500/10 dark:bg-rose-500/20 border border-rose-500/30 shadow-sm"
-                  : "text-zinc-400 hover:text-rose-500 bg-black/[0.04] dark:bg-white/[0.06] border border-black/5 dark:border-white/5"
-              }`}
-            >
-              <Heart
-                className={`h-5 w-5 ${isLiked ? "fill-rose-500 scale-110" : ""}`}
-                strokeWidth={isLiked ? 0 : 2}
-              />
-            </button>
-          </div>
-
-          {/* =============================================================== */}
-          {/* 4. WAVEFORM VISUALIZER & PROGRESS SCRUBBING                      */}
-          {/* =============================================================== */}
-          <div className="relative z-10 py-1 shrink-0">
-            <WaveformSeekbar
-              currentTime={currentTime}
-              duration={duration}
-              onSeek={(newTime) => seekTo(newTime)}
-              trackSeed={currentTrack.id || currentTrack.name}
-            />
-          </div>
-
-          {/* =============================================================== */}
-          {/* 5. HALO PLAYBACK CONTROLS (Prev / Halo Play / Next)              */}
-          {/* =============================================================== */}
-          <div className="relative z-10 flex items-center justify-center gap-6 sm:gap-8 py-2 shrink-0">
-            {/* Previous Track */}
-            <button
-              type="button"
-              onClick={() => void playPreviousTrack()}
-              title={translate(lang, "previousSong")}
-              className="flex h-12 w-12 items-center justify-center rounded-2xl text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100 hover:bg-black/[0.04] dark:hover:bg-white/[0.06] transition-all cursor-pointer active:scale-90"
-            >
-              <SkipBack className="h-6 w-6 stroke-[2]" />
-            </button>
-
-            {/* HALO PLAY / PAUSE BUTTON */}
-            <div className="relative flex items-center justify-center">
-              {/* Pulsing ambient glowing rings when active */}
-              {isPlaying && (
-                <>
-                  <div className="absolute -inset-2.5 rounded-full bg-orange-500/25 blur-md animate-pulse pointer-events-none" />
-                  <div className="absolute -inset-1 rounded-full bg-amber-500/40 blur-sm pointer-events-none" />
-                </>
-              )}
-
-              <button
-                type="button"
-                onClick={handleTogglePlay}
-                title={translate(lang, isPlaying ? "pauseSong" : "playSong")}
-                className={`relative flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-tr from-orange-500 via-amber-500 to-orange-400 text-white shadow-xl transition-transform duration-200 cursor-pointer active:scale-90 hover:scale-105 ${
-                  isPlaying ? "shadow-orange-500/40" : "shadow-orange-500/20"
-                }`}
-              >
-                {isPlaying ? (
-                  <Pause className="h-7 w-7 fill-white" />
-                ) : (
-                  <Play className="h-7 w-7 fill-white translate-x-0.5" />
-                )}
-              </button>
-            </div>
-
-            {/* Next Track */}
-            <button
-              type="button"
-              onClick={() => void playNextTrack()}
-              title={translate(lang, "nextSong")}
-              className="flex h-12 w-12 items-center justify-center rounded-2xl text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100 hover:bg-black/[0.04] dark:hover:bg-white/[0.06] transition-all cursor-pointer active:scale-90"
-            >
-              <SkipForward className="h-6 w-6 stroke-[2]" />
-            </button>
-          </div>
-
-          {/* =============================================================== */}
-          {/* 6. BOTTOM TOOLBAR: Converter, Speed, Booster, Repeat, Shuffle, Queue */}
-          {/* =============================================================== */}
-          <div className="relative z-10 flex items-center justify-between gap-2 pt-2 border-t border-black/[0.05] dark:border-white/[0.05] shrink-0">
+          <div className="relative z-10 flex items-center justify-between gap-2 py-1.5 shrink-0">
             {/* Left: Converter integration button */}
             <button
               type="button"
               onClick={handleOpenInConverter}
               title={translate(lang, "openInConverter")}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-2xl bg-orange-500/10 hover:bg-orange-500/20 text-orange-600 dark:text-orange-400 border border-orange-500/25 text-xs font-bold transition-all cursor-pointer active:scale-95"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-2xl bg-orange-500/10 hover:bg-orange-500/20 text-orange-600 dark:text-orange-400 border border-orange-500/25 text-xs font-bold transition-all cursor-pointer active:scale-95 shadow-sm"
             >
               <ArrowLeftRight className="h-3.5 w-3.5" />
               <span>{translate(lang, "converterTool")}</span>
@@ -280,41 +188,53 @@ export function NowPlayingView(): React.JSX.Element | null {
 
             {/* Right: Speed, Sound Booster, Repeat, Shuffle, Queue */}
             <div className="flex items-center gap-1.5 sm:gap-2">
-              {/* Playback Speed Controller */}
-              <button
-                type="button"
-                onClick={() => {
-                  setSpeedOpen(!speedOpen);
-                  setBoosterOpen(false);
-                }}
-                title={translate(lang, "playbackSpeed")}
-                className={`flex items-center gap-1 px-2 py-1 h-9 rounded-xl text-xs font-bold transition-colors cursor-pointer active:scale-90 ${
-                  playbackRate !== 1.0
-                    ? "text-orange-600 dark:text-orange-400 bg-orange-500/15 border border-orange-500/30"
-                    : "text-zinc-500 dark:text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-200 hover:bg-black/[0.04] dark:hover:bg-white/[0.06]"
-                }`}
-              >
-                <Gauge className="h-3.5 w-3.5" />
-                <span className="font-mono">{playbackRate}x</span>
-              </button>
+              {/* Playback Speed Controller with Micro Badge */}
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSpeedOpen(!speedOpen);
+                    setBoosterOpen(false);
+                  }}
+                  title={translate(lang, "playbackSpeed")}
+                  className={`flex h-9 w-9 items-center justify-center rounded-xl text-xs font-bold transition-colors cursor-pointer active:scale-90 ${
+                    playbackRate !== 1.0
+                      ? "text-orange-600 dark:text-orange-400 bg-orange-500/15 border border-orange-500/30"
+                      : "text-zinc-500 dark:text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-200 hover:bg-black/[0.04] dark:hover:bg-white/[0.06]"
+                  }`}
+                >
+                  <Gauge className="h-4 w-4" />
+                </button>
+                {playbackRate !== 1.0 && (
+                  <span className="absolute -top-1.5 -end-1 px-1 py-0.2 min-w-4 text-center text-[9px] font-extrabold font-mono rounded-full bg-orange-500 text-white leading-tight shadow-sm pointer-events-none">
+                    {playbackRate}x
+                  </span>
+                )}
+              </div>
 
-              {/* Real-time Sound Booster */}
-              <button
-                type="button"
-                onClick={() => {
-                  setBoosterOpen(!boosterOpen);
-                  setSpeedOpen(false);
-                }}
-                title={translate(lang, "soundBooster")}
-                className={`flex items-center gap-1 px-2 py-1 h-9 rounded-xl text-xs font-bold transition-colors cursor-pointer active:scale-90 ${
-                  volumeGainPercent > 100
-                    ? "text-amber-500 bg-amber-500/15 border border-amber-500/30 shadow-[0_0_10px_rgba(245,158,11,0.25)]"
-                    : "text-zinc-500 dark:text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-200 hover:bg-black/[0.04] dark:hover:bg-white/[0.06]"
-                }`}
-              >
-                <Flame className="h-3.5 w-3.5 text-orange-500" />
-                <span className="font-mono">{volumeGainPercent}%</span>
-              </button>
+              {/* Real-time Sound Booster with Micro Badge */}
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setBoosterOpen(!boosterOpen);
+                    setSpeedOpen(false);
+                  }}
+                  title={translate(lang, "soundBooster")}
+                  className={`flex h-9 w-9 items-center justify-center rounded-xl text-xs font-bold transition-colors cursor-pointer active:scale-90 ${
+                    volumeGainPercent > 100
+                      ? "text-amber-500 bg-amber-500/15 border border-amber-500/30 shadow-[0_0_10px_rgba(245,158,11,0.25)]"
+                      : "text-zinc-500 dark:text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-200 hover:bg-black/[0.04] dark:hover:bg-white/[0.06]"
+                  }`}
+                >
+                  <Flame className="h-4 w-4 text-orange-500" />
+                </button>
+                {volumeGainPercent > 100 && (
+                  <span className="absolute -top-1.5 -end-1 px-1 py-0.2 min-w-4 text-center text-[9px] font-extrabold font-mono rounded-full bg-amber-500 text-white leading-tight shadow-sm pointer-events-none">
+                    {volumeGainPercent}%
+                  </span>
+                )}
+              </div>
 
               {/* Repeat Toggle */}
               <button
@@ -373,6 +293,100 @@ export function NowPlayingView(): React.JSX.Element | null {
                 <ListMusic className="h-4 w-4" />
               </button>
             </div>
+          </div>
+
+          {/* =============================================================== */}
+          {/* 4. TRACK METADATA & LIKE BUTTON ROW                             */}
+          {/* =============================================================== */}
+          <div className="relative z-10 flex items-center justify-between gap-4 pt-1 pb-1 shrink-0">
+            <div className="flex flex-col min-w-0 flex-1">
+              <h1 className="text-lg sm:text-xl font-extrabold text-zinc-900 dark:text-zinc-100 tracking-tight truncate">
+                {currentTrack.title || currentTrack.name}
+              </h1>
+              <p className="text-xs font-semibold text-zinc-500 dark:text-zinc-400 truncate mt-0.5">
+                {currentTrack.artist || "Unknown Artist"}
+              </p>
+            </div>
+
+            {/* Heart/Like Button */}
+            <button
+              type="button"
+              onClick={() => toggleLike(currentTrack)}
+              title={translate(lang, isLiked ? "unlikeTrack" : "likeTrack")}
+              className={`relative flex h-11 w-11 items-center justify-center rounded-2xl transition-all duration-200 cursor-pointer active:scale-90 ${
+                isLiked
+                  ? "text-rose-500 bg-rose-500/10 dark:bg-rose-500/20 border border-rose-500/30 shadow-sm"
+                  : "text-zinc-400 hover:text-rose-500 bg-black/[0.04] dark:bg-white/[0.06] border border-black/5 dark:border-white/5"
+              }`}
+            >
+              <Heart
+                className={`h-5 w-5 ${isLiked ? "fill-rose-500 scale-110" : ""}`}
+                strokeWidth={isLiked ? 0 : 2}
+              />
+            </button>
+          </div>
+
+          {/* =============================================================== */}
+          {/* 5. WAVEFORM VISUALIZER & PROGRESS SCRUBBING                      */}
+          {/* =============================================================== */}
+          <div className="relative z-10 py-1 shrink-0">
+            <WaveformSeekbar
+              currentTime={currentTime}
+              duration={duration}
+              onSeek={(newTime) => seekTo(newTime)}
+              trackSeed={currentTrack.id || currentTrack.name}
+            />
+          </div>
+
+          {/* =============================================================== */}
+          {/* 6. HALO PLAYBACK CONTROLS (Prev / Halo Play / Next)              */}
+          {/* =============================================================== */}
+          <div className="relative z-10 flex items-center justify-center gap-6 sm:gap-8 py-2 pb-1 shrink-0">
+            {/* Previous Track */}
+            <button
+              type="button"
+              onClick={() => void playPreviousTrack()}
+              title={translate(lang, "previousSong")}
+              className="flex h-12 w-12 items-center justify-center rounded-2xl text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100 hover:bg-black/[0.04] dark:hover:bg-white/[0.06] transition-all cursor-pointer active:scale-90"
+            >
+              <SkipBack className="h-6 w-6 stroke-[2]" />
+            </button>
+
+            {/* HALO PLAY / PAUSE BUTTON */}
+            <div className="relative flex items-center justify-center">
+              {/* Pulsing ambient glowing rings when active */}
+              {isPlaying && (
+                <>
+                  <div className="absolute -inset-2.5 rounded-full bg-orange-500/25 blur-md animate-pulse pointer-events-none" />
+                  <div className="absolute -inset-1 rounded-full bg-amber-500/40 blur-sm pointer-events-none" />
+                </>
+              )}
+
+              <button
+                type="button"
+                onClick={handleTogglePlay}
+                title={translate(lang, isPlaying ? "pauseSong" : "playSong")}
+                className={`relative flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-tr from-orange-500 via-amber-500 to-orange-400 text-white shadow-xl transition-transform duration-200 cursor-pointer active:scale-90 hover:scale-105 ${
+                  isPlaying ? "shadow-orange-500/40" : "shadow-orange-500/20"
+                }`}
+              >
+                {isPlaying ? (
+                  <Pause className="h-7 w-7 fill-white" />
+                ) : (
+                  <Play className="h-7 w-7 fill-white translate-x-0.5" />
+                )}
+              </button>
+            </div>
+
+            {/* Next Track */}
+            <button
+              type="button"
+              onClick={() => void playNextTrack()}
+              title={translate(lang, "nextSong")}
+              className="flex h-12 w-12 items-center justify-center rounded-2xl text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100 hover:bg-black/[0.04] dark:hover:bg-white/[0.06] transition-all cursor-pointer active:scale-90"
+            >
+              <SkipForward className="h-6 w-6 stroke-[2]" />
+            </button>
           </div>
         </div>
 
@@ -474,33 +488,44 @@ export function NowPlayingView(): React.JSX.Element | null {
       </div>
 
       {/* ================================================================= */}
-      {/* 7. PLAYBACK SPEED POPUP (0.5x to 4.0x)                            */}
+      {/* 7. PLAYBACK SPEED POPUP (0.5x to 2.5x with Reset)                 */}
       {/* ================================================================= */}
       {speedOpen && (
-        <div className="absolute inset-0 z-50 flex flex-col justify-end bg-black/40 backdrop-blur-sm animate-in fade-in duration-150 rounded-3xl overflow-hidden">
+        <div className="fixed inset-0 z-[60] flex flex-col justify-end bg-black/50 backdrop-blur-sm animate-in fade-in duration-150">
           <div className="absolute inset-0" onClick={() => setSpeedOpen(false)} />
 
           <div
-            className="relative z-10 w-full rounded-t-3xl bg-white dark:bg-zinc-900 border-t border-black/10 dark:border-white/10 shadow-2xl p-5 flex flex-col gap-4 animate-in slide-in-from-bottom duration-200"
+            className="relative z-10 w-full max-w-lg mx-auto rounded-t-3xl bg-white dark:bg-zinc-900 border-t border-black/10 dark:border-white/10 shadow-2xl p-5 flex flex-col gap-4 animate-in slide-in-from-bottom duration-200"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between pb-1 border-b border-black/[0.06] dark:border-white/[0.06]">
+            <div className="flex items-center justify-between pb-2 border-b border-black/[0.06] dark:border-white/[0.06]">
               <div className="flex items-center gap-2">
                 <Gauge className="h-4 w-4 text-orange-500" />
                 <h3 className="text-xs font-bold text-zinc-900 dark:text-zinc-100">
                   {translate(lang, "playbackSpeed")}
                 </h3>
               </div>
-              <button
-                type="button"
-                onClick={() => setSpeedOpen(false)}
-                className="flex h-7 w-7 items-center justify-center rounded-full bg-black/[0.05] dark:bg-white/10 text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-100 cursor-pointer"
-              >
-                <X className="h-4 w-4" />
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPlaybackRate(1.0)}
+                  title={translate(lang, "resetSpeed")}
+                  className="flex items-center gap-1 h-7 px-2.5 rounded-full bg-black/[0.05] hover:bg-black/10 dark:bg-white/10 dark:hover:bg-white/15 text-[11px] font-bold text-zinc-600 dark:text-zinc-300 transition-colors cursor-pointer active:scale-95"
+                >
+                  <RotateCcw className="h-3 w-3" />
+                  <span>{translate(lang, "reset")}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSpeedOpen(false)}
+                  className="flex h-7 w-7 items-center justify-center rounded-full bg-black/[0.05] dark:bg-white/10 text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-100 cursor-pointer"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
             </div>
 
-            {/* Speed Presets Grid */}
+            {/* Speed Presets Grid (0.5x, 1x, 1.5x, 2x, 2.5x) */}
             <div className="grid grid-cols-5 gap-2">
               {SPEED_PRESETS.map((preset) => {
                 const isSelected = playbackRate === preset;
@@ -514,7 +539,7 @@ export function NowPlayingView(): React.JSX.Element | null {
                     }}
                     className={`py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                       isSelected
-                        ? "bg-orange-500 text-white shadow-sm"
+                        ? "bg-orange-500 text-white shadow-md shadow-orange-500/25"
                         : "bg-black/[0.04] dark:bg-white/[0.06] text-zinc-700 dark:text-zinc-300 hover:bg-orange-500/10"
                     }`}
                   >
@@ -524,17 +549,17 @@ export function NowPlayingView(): React.JSX.Element | null {
               })}
             </div>
 
-            {/* Slider for continuous speed tuning */}
-            <div className="flex flex-col gap-1.5 pt-1">
+            {/* Slider for continuous speed tuning (Strictly LTR) */}
+            <div dir="ltr" className="flex flex-col gap-1.5 pt-1">
               <div className="flex justify-between text-xs font-medium text-zinc-500">
                 <span>0.5x</span>
                 <span className="font-bold text-orange-500">{playbackRate}x</span>
-                <span>4.0x</span>
+                <span>2.5x</span>
               </div>
               <input
                 type="range"
                 min="0.5"
-                max="4.0"
+                max="2.5"
                 step="0.05"
                 value={playbackRate}
                 onChange={(e) => setPlaybackRate(parseFloat(e.target.value))}
@@ -546,30 +571,41 @@ export function NowPlayingView(): React.JSX.Element | null {
       )}
 
       {/* ================================================================= */}
-      {/* 8. SOUND BOOSTER POPUP (100% to 400%)                             */}
+      {/* 8. SOUND BOOSTER POPUP (100% to 400% with Reset)                  */}
       {/* ================================================================= */}
       {boosterOpen && (
-        <div className="absolute inset-0 z-50 flex flex-col justify-end bg-black/40 backdrop-blur-sm animate-in fade-in duration-150 rounded-3xl overflow-hidden">
+        <div className="fixed inset-0 z-[60] flex flex-col justify-end bg-black/50 backdrop-blur-sm animate-in fade-in duration-150">
           <div className="absolute inset-0" onClick={() => setBoosterOpen(false)} />
 
           <div
-            className="relative z-10 w-full rounded-t-3xl bg-white dark:bg-zinc-900 border-t border-black/10 dark:border-white/10 shadow-2xl p-5 flex flex-col gap-4 animate-in slide-in-from-bottom duration-200"
+            className="relative z-10 w-full max-w-lg mx-auto rounded-t-3xl bg-white dark:bg-zinc-900 border-t border-black/10 dark:border-white/10 shadow-2xl p-5 flex flex-col gap-4 animate-in slide-in-from-bottom duration-200"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between pb-1 border-b border-black/[0.06] dark:border-white/[0.06]">
+            <div className="flex items-center justify-between pb-2 border-b border-black/[0.06] dark:border-white/[0.06]">
               <div className="flex items-center gap-2">
                 <Flame className="h-4 w-4 text-orange-500" />
                 <h3 className="text-xs font-bold text-zinc-900 dark:text-zinc-100">
                   {translate(lang, "soundBooster")}
                 </h3>
               </div>
-              <button
-                type="button"
-                onClick={() => setBoosterOpen(false)}
-                className="flex h-7 w-7 items-center justify-center rounded-full bg-black/[0.05] dark:bg-white/10 text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-100 cursor-pointer"
-              >
-                <X className="h-4 w-4" />
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setVolumeGainPercent(100)}
+                  title={translate(lang, "resetBoost")}
+                  className="flex items-center gap-1 h-7 px-2.5 rounded-full bg-black/[0.05] hover:bg-black/10 dark:bg-white/10 dark:hover:bg-white/15 text-[11px] font-bold text-zinc-600 dark:text-zinc-300 transition-colors cursor-pointer active:scale-95"
+                >
+                  <RotateCcw className="h-3 w-3" />
+                  <span>{translate(lang, "reset")}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setBoosterOpen(false)}
+                  className="flex h-7 w-7 items-center justify-center rounded-full bg-black/[0.05] dark:bg-white/10 text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-100 cursor-pointer"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
             </div>
 
             {/* Booster Preset Buttons */}
@@ -586,7 +622,7 @@ export function NowPlayingView(): React.JSX.Element | null {
                     }}
                     className={`py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                       isSelected
-                        ? "bg-amber-500 text-white shadow-sm"
+                        ? "bg-amber-500 text-white shadow-md shadow-amber-500/25"
                         : "bg-black/[0.04] dark:bg-white/[0.06] text-zinc-700 dark:text-zinc-300 hover:bg-amber-500/10"
                     }`}
                   >
@@ -596,8 +632,8 @@ export function NowPlayingView(): React.JSX.Element | null {
               })}
             </div>
 
-            {/* Booster Slider */}
-            <div className="flex flex-col gap-1.5 pt-1">
+            {/* Booster Slider (Strictly LTR) */}
+            <div dir="ltr" className="flex flex-col gap-1.5 pt-1">
               <div className="flex justify-between text-xs font-medium text-zinc-500">
                 <span className="flex items-center gap-1">
                   <Volume2 className="h-3.5 w-3.5" /> 100%
@@ -625,7 +661,7 @@ export function NowPlayingView(): React.JSX.Element | null {
       {/* 9. MOBILE QUEUE / UP NEXT SLIDE-UP DRAWER                         */}
       {/* ================================================================= */}
       {queueOpen && (
-        <div className="absolute inset-0 z-50 flex flex-col justify-end bg-black/50 backdrop-blur-sm animate-in fade-in duration-150 rounded-3xl overflow-hidden lg:hidden">
+        <div className="fixed inset-0 z-[60] flex flex-col justify-end bg-black/50 backdrop-blur-sm animate-in fade-in duration-150 lg:hidden">
           <div className="absolute inset-0" onClick={() => setQueueOpen(false)} />
 
           <div

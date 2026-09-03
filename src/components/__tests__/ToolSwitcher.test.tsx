@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, act } from "@testing-library/react";
 import { ToolSwitcher } from "../ToolSwitcher";
 import { HeaderBar } from "../HeaderBar";
 import { useAppStore } from "../../stores/useAppStore";
@@ -71,6 +71,26 @@ describe("ToolSwitcher", () => {
     expect(useAppStore.getState().activeTool).toBe("converter");
     expect(window.localStorage.getItem("active-tool")).toBe("converter");
   });
+
+  it("shows first-time converter onboarding guide and dismisses on button click", async () => {
+    vi.useFakeTimers();
+    render(<ToolSwitcher />);
+
+    act(() => {
+      vi.advanceTimersByTime(600);
+    });
+
+    expect(screen.getByText(/Audio Converter is here!/i)).toBeDefined();
+
+    const gotItBtn = screen.getByRole("button", { name: /Got it/i });
+    act(() => {
+      fireEvent.click(gotItBtn);
+    });
+
+    expect(window.localStorage.getItem("has-seen-converter-guide")).toBe("true");
+    expect(screen.queryByText(/Audio Converter is here!/i)).toBeNull();
+    vi.useRealTimers();
+  });
 });
 
 describe("HeaderBar Dynamic Title", () => {
@@ -92,6 +112,6 @@ describe("HeaderBar Dynamic Title", () => {
     useAppStore.setState({ activeTool: "player", lang: "fa" });
     render(<HeaderBar />);
 
-    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("پخش‌کننده موسیقی");
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("موزیک‌پلیر");
   });
 });

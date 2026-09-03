@@ -97,7 +97,8 @@ export function TrackListView({ likedOnly = false }: TrackListViewProps): React.
   // Base list depending on mode (all vs liked only)
   const baseTracks = likedOnly ? tracks.filter((t) => isTrackLiked(t, likedPaths)) : tracks;
   const filteredTracks = filterAndSortTracks(baseTracks, searchQuery, sortBy, likedPaths);
-  const isPermissionDenied = permissionStatus === "denied" || permissionStatus === "permanentlyDenied";
+  const isPermissionDenied =
+    (permissionStatus === "denied" || permissionStatus === "permanentlyDenied") && tracks.length === 0;
 
   return (
     <div className="flex flex-col flex-1 w-full gap-3 min-h-0 overflow-hidden">

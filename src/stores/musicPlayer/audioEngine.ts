@@ -1,5 +1,6 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
 import * as api from "../../utils/tauri";
+import { isAndroid } from "../../utils/platform";
 import { initMediaSession, syncMediaSession } from "../../utils/mediaSession";
 import type { AudioTrackInfo } from "../../types";
 import type { useMusicPlayerStore } from "../useMusicPlayerStore";
@@ -7,6 +8,7 @@ import type { useMusicPlayerStore } from "../useMusicPlayerStore";
 type MusicStore = typeof useMusicPlayerStore;
 
 let boundStore: MusicStore | null = null;
+let androidPollTimer: ReturnType<typeof setInterval> | null = null;
 
 export function bindMusicStore(store: MusicStore): void {
   boundStore = store;
@@ -53,7 +55,7 @@ export function getGlobalAudio(): HTMLAudioElement | null {
 
     const state = () => boundStore?.getState();
 
-    // Initialize Lock Screen / System Media Session listeners
+    // Initialize Lock Screen / System Media Session listeners (Web / Desktop)
     initMediaSession({
       onPlay: () => state()?.resumeTrack(),
       onPause: () => state()?.pauseTrack(),
@@ -134,11 +136,257 @@ export function getGlobalAudio(): HTMLAudioElement | null {
   return globalAudio;
 }
 
-export async function resolveAudioSource(track: AudioTrackInfo): Promise<string> {
-  // 1. Android content:// URI
-  if (track.uri.startsWith("content://")) {
+// ---------------------------------------------------------------------------
+// Android Native Jetpack Media3 State Polling & Synchronization
+// ---------------------------------------------------------------------------
+
+function startAndroidStateSync(): void {
+  if (androidPollTimer) return;
+  androidPollTimer = setInterval(async () => {
+    if (!boundStore) return;
     try {
-      const resolved = await api.resolveMediaPaths([track.uri]);
+      const state = await api.androidPlayerGetState();
+      if (!state || Object.keys(state).length === 0) return;
+
+      const isPlaying = Boolean(state.isPlaying);
+      const currentTimeMs = typeof state.currentTimeMs === "number" ? state.currentTimeMs : 0;
+      const durationMs = typeof state.durationMs === "number" ? state.durationMs : 0;
+
+      const curSecs = currentTimeMs / 1000;
+      const durSecs = durationMs / 1000;
+
+      const currentStoreState = boundStore.getState();
+      const patch: Partial<ReturnType<MusicStore["getState"]>> = {};
+
+      if (currentStoreState.isPlaying !== isPlaying) {
+        patch.isPlaying = isPlaying;
+      }
+      if (Math.abs(currentStoreState.currentTime - curSecs) > 0.3) {
+        patch.currentTime = curSecs;
+      }
+      if (durSecs > 0 && Math.abs(currentStoreState.duration - durSecs) > 0.5) {
+        patch.duration = durSecs;
+      }
+
+      if (Object.keys(patch).length > 0) {
+        boundStore.setState(patch);
+      }
+    } catch (e) {
+      console.warn("Android player state sync error:", e);
+    }
+  }, 250);
+}
+
+function stopAndroidStateSync(): void {
+  if (androidPollTimer) {
+    clearInterval(androidPollTimer);
+    androidPollTimer = null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Unified Cross-Platform Playback Operations
+// ---------------------------------------------------------------------------
+
+export async function unifiedPlayTrack(
+  track: AudioTrackInfo,
+  playlist?: AudioTrackInfo[],
+  startIndex = 0,
+): Promise<void> {
+  if (isAndroid()) {
+    try {
+      await api.androidPlayerPlay(
+        JSON.stringify(track),
+        playlist ? JSON.stringify(playlist) : undefined,
+        startIndex,
+      );
+      startAndroidStateSync();
+    } catch (err) {
+      console.warn("Android native playback failed, falling back to WebAudio:", err);
+      await playViaWebAudio(track);
+    }
+    return;
+  }
+
+  await playViaWebAudio(track);
+}
+
+async function playViaWebAudio(track: AudioTrackInfo): Promise<void> {
+  const audio = getGlobalAudio();
+  if (!audio) return;
+
+  try {
+    audio.pause();
+  } catch {}
+  audio.currentTime = 0;
+
+  try {
+    const src = await resolveAudioSource(track);
+    const latest = boundStore?.getState().currentTrack;
+    if (!latest || (latest.id !== track.id && latest.uri !== track.uri)) {
+      return;
+    }
+    audio.src = src;
+    audio.load();
+    const p = audio.play();
+    if (p && typeof p.catch === "function") {
+      p.catch((err) => {
+        console.warn("WebAudio play error:", err);
+        boundStore?.setState({ isPlaying: false });
+      });
+    }
+  } catch (err) {
+    console.warn("Failed to play track via WebAudio:", err);
+    boundStore?.setState({ isPlaying: false });
+  }
+}
+
+export async function unifiedPause(): Promise<void> {
+  if (isAndroid()) {
+    try {
+      await api.androidPlayerPause();
+    } catch (err) {
+      console.warn("Android native pause failed:", err);
+    }
+  }
+  const audio = getGlobalAudio();
+  if (audio) {
+    try {
+      audio.pause();
+    } catch {}
+  }
+}
+
+export async function unifiedResume(): Promise<void> {
+  if (isAndroid()) {
+    try {
+      await api.androidPlayerResume();
+      startAndroidStateSync();
+      return;
+    } catch (err) {
+      console.warn("Android native resume failed, falling back to WebAudio:", err);
+    }
+  }
+  const audio = getGlobalAudio();
+  if (audio && audio.src) {
+    try {
+      const p = audio.play();
+      if (p && typeof p.catch === "function") {
+        p.catch((err) => console.warn("WebAudio resume error:", err));
+      }
+    } catch {}
+  }
+}
+
+export async function unifiedSeekTo(timeSecs: number): Promise<void> {
+  if (isAndroid()) {
+    try {
+      await api.androidPlayerSeekTo(timeSecs * 1000);
+    } catch (err) {
+      console.warn("Android native seek failed:", err);
+    }
+  }
+  const audio = getGlobalAudio();
+  if (audio && Number.isFinite(timeSecs)) {
+    audio.currentTime = timeSecs;
+  }
+}
+
+export async function unifiedNext(): Promise<void> {
+  if (isAndroid()) {
+    try {
+      await api.androidPlayerNext();
+      return;
+    } catch (err) {
+      console.warn("Android native next failed:", err);
+    }
+  }
+}
+
+export async function unifiedPrevious(): Promise<void> {
+  if (isAndroid()) {
+    try {
+      await api.androidPlayerPrevious();
+      return;
+    } catch (err) {
+      console.warn("Android native previous failed:", err);
+    }
+  }
+}
+
+export async function unifiedSetRepeatMode(mode: "off" | "one" | "all"): Promise<void> {
+  if (isAndroid()) {
+    try {
+      await api.androidPlayerSetRepeatMode(mode);
+    } catch (err) {
+      console.warn("Android native setRepeatMode failed:", err);
+    }
+  }
+}
+
+export async function unifiedSetShuffleMode(enabled: boolean): Promise<void> {
+  if (isAndroid()) {
+    try {
+      await api.androidPlayerSetShuffleMode(enabled);
+    } catch (err) {
+      console.warn("Android native setShuffleMode failed:", err);
+    }
+  }
+}
+
+export async function unifiedSetSpeed(speed: number): Promise<void> {
+  if (isAndroid()) {
+    try {
+      await api.androidPlayerSetSpeed(speed);
+    } catch (err) {
+      console.warn("Android native setSpeed failed:", err);
+    }
+  }
+  const audio = getGlobalAudio();
+  if (audio) {
+    audio.playbackRate = speed;
+  }
+}
+
+export async function unifiedStop(): Promise<void> {
+  stopAndroidStateSync();
+  if (isAndroid()) {
+    try {
+      await api.androidPlayerStop();
+    } catch (err) {
+      console.warn("Android native stop failed:", err);
+    }
+  }
+  const audio = getGlobalAudio();
+  if (audio) {
+    try {
+      audio.pause();
+      audio.src = "";
+    } catch {}
+  }
+}
+
+export async function resolveAudioSource(track: AudioTrackInfo): Promise<string> {
+  const target = track.uri || track.path || "";
+  if (!target) return "";
+
+  if (
+    target.startsWith("http://") ||
+    target.startsWith("https://") ||
+    target.startsWith("data:") ||
+    target.startsWith("blob:")
+  ) {
+    return target;
+  }
+
+  // 1. Android content URI or device storage path
+  if (
+    target.startsWith("content://") ||
+    target.startsWith("/storage/") ||
+    target.startsWith("/sdcard/")
+  ) {
+    try {
+      const resolved = await api.resolveMediaPaths([target]);
       if (
         resolved.length > 0 &&
         resolved[0].resolved &&
@@ -147,25 +395,16 @@ export async function resolveAudioSource(track: AudioTrackInfo): Promise<string>
         return convertFileSrc(resolved[0].resolved);
       }
     } catch (e) {
-      console.warn("Failed to resolve Android content URI:", e);
+      console.warn("Failed to resolve Android media URI:", e);
     }
   }
 
   // 2. Desktop POSIX / Windows path or file:// URI
   const rawPath =
     track.path ||
-    (track.uri.startsWith("file://")
-      ? decodeURIComponent(track.uri.replace(/^file:\/\//, ""))
-      : track.uri);
-
-  if (
-    rawPath.startsWith("http://") ||
-    rawPath.startsWith("https://") ||
-    rawPath.startsWith("data:") ||
-    rawPath.startsWith("blob:")
-  ) {
-    return rawPath;
-  }
+    (target.startsWith("file://")
+      ? decodeURIComponent(target.replace(/^file:\/\//, ""))
+      : target);
 
   try {
     return convertFileSrc(rawPath);

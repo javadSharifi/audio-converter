@@ -23,7 +23,7 @@ function meta(path: string, over: Partial<InputFile> = {}): InputFile {
 
 beforeEach(() => {
   cleanup();
-  useAppStore.setState({ files: [], jobs: new Map(), toasts: [] });
+  useAppStore.setState({ files: [], jobs: new Map(), toasts: [], lang: "en" });
 });
 
 describe("FileList", () => {

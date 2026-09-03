@@ -41,7 +41,7 @@ pub struct Settings {
 impl Default for Settings {
     fn default() -> Self {
         Self {
-            language: "en".into(),
+            language: "fa".into(),
             theme: "system".into(),
             default_format: crate::types::AudioFormat::Mp3,
             default_quality: crate::types::QualityPreset::Medium,
@@ -61,7 +61,7 @@ impl Settings {
     pub fn validate(&mut self) -> Result<(), String> {
         self.concurrency = self.concurrency.clamp(1, max_reasonable_concurrency());
         if !matches!(self.language.as_str(), "en" | "fa") {
-            self.language = "en".into();
+            self.language = "fa".into();
         }
         if !matches!(self.theme.as_str(), "light" | "dark" | "system") {
             self.theme = "system".into();
@@ -154,7 +154,7 @@ mod tests {
         };
         s.validate().unwrap();
         assert_eq!(s.concurrency, max_reasonable_concurrency());
-        assert_eq!(s.language, "en");
+        assert_eq!(s.language, "fa");
         assert_eq!(s.theme, "system");
         assert_eq!(s.silence_threshold_db, -30);
         assert_eq!(s.silence_min_duration_secs, 2.0);

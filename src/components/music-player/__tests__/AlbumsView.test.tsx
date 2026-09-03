@@ -5,6 +5,7 @@ import {
   useMusicPlayerStore,
   computeAllAlbums,
 } from "../../../stores/useMusicPlayerStore";
+import { useAppStore } from "../../../stores/useAppStore";
 import { AlbumsView } from "../AlbumsView";
 import { AddToAlbumModal } from "../AddToAlbumModal";
 import type { AudioTrackInfo, CustomAlbum } from "../../../types";
@@ -70,6 +71,7 @@ const customWeddingAlbum: CustomAlbum = {
 
 beforeEach(() => {
   cleanup();
+  useAppStore.setState({ lang: "en" });
   useMusicPlayerStore.setState({
     tracks: [track1, track2, track3],
     customAlbums: [customWeddingAlbum],

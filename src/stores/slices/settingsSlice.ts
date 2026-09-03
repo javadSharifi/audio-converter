@@ -14,7 +14,7 @@ function getInitialActiveTool(): AppTool {
       }
     }
   } catch {}
-  return "converter";
+  return "player";
 }
 
 export interface SettingsSlice {
@@ -57,7 +57,7 @@ export const createSettingsSlice: StateCreator<
 > = (set, get) => ({
   settings: null,
   options: defaultOptions,
-  lang: "en",
+  lang: "fa",
   theme: "system",
   activeTool: getInitialActiveTool(),
 

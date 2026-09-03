@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { useAppStore } from "../../stores/useAppStore";
-import { useMusicPlayerStore } from "../../stores/useMusicPlayerStore";
+import { useMusicPlayerStore, isTrackLiked } from "../../stores/useMusicPlayerStore";
 import { translate } from "../../i18n";
 import { TrackCover } from "./TrackCover";
 import { TrackDetailsModal } from "./TrackDetailsModal";
@@ -16,6 +16,7 @@ import {
   AlertTriangle,
   Smartphone,
   FolderPlus,
+  Heart,
 } from "lucide-react";
 import type { AudioTrackInfo } from "../../types";
 
@@ -26,8 +27,12 @@ interface TrackOptionsSheetProps {
 
 export function TrackOptionsSheet({ track, onClose }: TrackOptionsSheetProps): React.JSX.Element {
   const lang = useAppStore((s) => s.lang);
+  const likedPaths = useMusicPlayerStore((s) => s.likedPaths);
+  const toggleLike = useMusicPlayerStore((s) => s.toggleLike);
   const deleteTrack = useMusicPlayerStore((s) => s.deleteTrack);
   const shareTrack = useMusicPlayerStore((s) => s.shareTrack);
+
+  const isLiked = isTrackLiked(track, likedPaths);
 
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
@@ -162,7 +167,40 @@ export function TrackOptionsSheet({ track, onClose }: TrackOptionsSheetProps): R
         ) : (
           /* Action Options List */
           <div className="flex flex-col gap-1 py-1">
-            {/* 1. Add to Album */}
+            {/* 1. Like / Favorite Toggle */}
+            <button
+              type="button"
+              onClick={() => {
+                toggleLike(track);
+              }}
+              className="flex items-center justify-between w-full p-3 rounded-2xl hover:bg-black/[0.04] dark:hover:bg-white/[0.05] transition-colors cursor-pointer group"
+            >
+              <div className="flex items-center gap-3">
+                <div
+                  className={`flex h-9 w-9 items-center justify-center rounded-xl transition-transform group-hover:scale-105 ${
+                    isLiked
+                      ? "bg-rose-500/15 text-rose-500 dark:bg-rose-500/25"
+                      : "bg-rose-500/10 text-rose-500 dark:bg-rose-500/15"
+                  }`}
+                >
+                  <Heart
+                    className={`h-4 w-4 ${isLiked ? "fill-rose-500" : ""}`}
+                    strokeWidth={isLiked ? 0 : 2}
+                  />
+                </div>
+                <span
+                  className={`text-xs font-bold ${
+                    isLiked
+                      ? "text-rose-600 dark:text-rose-400"
+                      : "text-zinc-800 dark:text-zinc-200"
+                  }`}
+                >
+                  {translate(lang, isLiked ? "unlikeTrack" : "likeTrack")}
+                </span>
+              </div>
+            </button>
+
+            {/* 2. Add to Album */}
             <button
               type="button"
               onClick={() => setAlbumModalOpen(true)}

@@ -6,9 +6,13 @@ import { MusicPlayerView } from "../MusicPlayerView";
 import { useAppStore } from "../../../stores/useAppStore";
 import { useMusicPlayerStore } from "../../../stores/useMusicPlayerStore";
 
-vi.mock("../../../utils/tauri", () => ({
-  scanAudioFiles: vi.fn(async () => []),
-}));
+vi.mock("../../../utils/tauri", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../../utils/tauri")>();
+  return {
+    ...actual,
+    scanAudioFiles: vi.fn(async () => []),
+  };
+});
 
 beforeEach(() => {
   cleanup();

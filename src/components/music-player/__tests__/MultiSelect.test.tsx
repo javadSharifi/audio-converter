@@ -6,13 +6,17 @@ import { useAppStore } from "../../../stores/useAppStore";
 import { SongsView } from "../SongsView";
 import type { AudioTrackInfo } from "../../../types";
 
-vi.mock("../../../utils/tauri", () => ({
-  scanAudioFiles: vi.fn(async () => []),
-  getMusicPermissionStatus: vi.fn(async () => "granted"),
-  requestMediaPermissions: vi.fn(async () => true),
-  openAppSettings: vi.fn(async () => {}),
-  deleteAudioTrack: vi.fn(async () => true),
-}));
+vi.mock("../../../utils/tauri", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../../utils/tauri")>();
+  return {
+    ...actual,
+    scanAudioFiles: vi.fn(async () => []),
+    getMusicPermissionStatus: vi.fn(async () => "granted"),
+    requestMediaPermissions: vi.fn(async () => true),
+    openAppSettings: vi.fn(async () => {}),
+    deleteAudioTrack: vi.fn(async () => true),
+  };
+});
 
 const mockTracks: AudioTrackInfo[] = [
   {
@@ -154,5 +158,27 @@ describe("Multi-Select Mode in Music Player", () => {
 
     const partyAlbum = useMusicPlayerStore.getState().customAlbums.find((a) => a.id === "album_party");
     expect(partyAlbum?.trackKeys.length).toBe(2);
+  });
+
+  it("bulk likes and unlikes multiple selected tracks", () => {
+    useMusicPlayerStore.setState({
+      isSelectionMode: true,
+      selectedTrackKeys: new Set(["file:///music/song1.mp3", "file:///music/song2.mp3"]),
+      likedPaths: new Set(),
+    });
+
+    render(<SongsView />);
+
+    const likeBtn = screen.getByTitle(/Add to Liked/i);
+    fireEvent.click(likeBtn);
+
+    expect(useMusicPlayerStore.getState().likedPaths.size).toBe(2);
+    expect(useMusicPlayerStore.getState().likedPaths.has("file:///music/song1.mp3")).toBe(true);
+    expect(useMusicPlayerStore.getState().likedPaths.has("file:///music/song2.mp3")).toBe(true);
+
+    // Clicking again unlikes all selected
+    const unlikeBtn = screen.getByTitle(/Remove from Liked/i);
+    fireEvent.click(unlikeBtn);
+    expect(useMusicPlayerStore.getState().likedPaths.size).toBe(0);
   });
 });

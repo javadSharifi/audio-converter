@@ -137,9 +137,9 @@ describe("NowPlayingView Fullscreen Player", () => {
     // Converter button
     expect(screen.getByText(/Converter/i)).toBeTruthy();
 
-    // Speed badge & Booster badge
-    expect(screen.getByText("1x")).toBeTruthy();
-    expect(screen.getByText("100%")).toBeTruthy();
+    // Speed button & Booster button
+    expect(screen.getByTitle(/Playback Speed/i)).toBeTruthy();
+    expect(screen.getByTitle(/Sound Booster/i)).toBeTruthy();
   });
 
   it("switches to Converter tool when Converter button is clicked", () => {

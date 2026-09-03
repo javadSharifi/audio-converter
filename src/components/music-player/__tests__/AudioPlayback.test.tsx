@@ -2,6 +2,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import { useMusicPlayerStore } from "../../../stores/useMusicPlayerStore";
+import { useAppStore } from "../../../stores/useAppStore";
 import { TrackRow } from "../TrackRow";
 import type { AudioTrackInfo } from "../../../types";
 
@@ -41,6 +42,7 @@ const mockTrack2: AudioTrackInfo = {
 
 beforeEach(() => {
   cleanup();
+  useAppStore.setState({ lang: "en" });
   useMusicPlayerStore.setState({
     tracks: [mockTrack1, mockTrack2],
     currentPlaylist: [mockTrack1, mockTrack2],

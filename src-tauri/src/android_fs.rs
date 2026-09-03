@@ -369,17 +369,168 @@ pub fn call_static_void_float(method: &str, val: f32) -> Result<(), String> {
     })
 }
 
-#[cfg(not(target_os = "android"))]
-pub fn call_static_bool(_method: &str) -> bool {
-    true
+#[cfg(target_os = "android")]
+pub fn call_static_string_no_arg(method: &str) -> Result<String, String> {
+    with_jni_env(|env| {
+        let cls = main_activity_class(env)?;
+        let j_val = match env.call_static_method(&cls, method, "()Ljava/lang/String;", &[]) {
+            Ok(v) => v,
+            Err(e) => {
+                if env.exception_check().unwrap_or(false) {
+                    let _ = env.exception_describe();
+                    let _ = env.exception_clear();
+                }
+                return Err(format!("Failed to call {method}: {e}"));
+            }
+        };
+        let j_obj = j_val.l().map_err(|e| format!("Expected object: {e}"))?;
+        if j_obj.as_raw().is_null() {
+            return Ok(String::new());
+        }
+        let j_str = jni::objects::JString::from(j_obj);
+        let s: String = env
+            .get_string(&j_str)
+            .map_err(|e| format!("Failed to extract Rust string: {e}"))?
+            .into();
+        Ok(s)
+    })
 }
 
 #[cfg(not(target_os = "android"))]
-pub fn call_static_void(_method: &str) -> Result<(), String> {
-    Ok(())
+pub fn call_static_string_no_arg(_method: &str) -> Result<String, String> {
+    Ok("OK".to_string())
+}
+
+#[cfg(target_os = "android")]
+pub fn call_static_string_1arg(method: &str, arg: &str) -> Result<String, String> {
+    call_static_string(method, "(Ljava/lang/String;)Ljava/lang/String;", arg)
 }
 
 #[cfg(not(target_os = "android"))]
-pub fn call_static_void_float(_method: &str, _val: f32) -> Result<(), String> {
-    Ok(())
+pub fn call_static_string_1arg(_method: &str, _arg: &str) -> Result<String, String> {
+    Ok("OK".to_string())
+}
+
+#[cfg(target_os = "android")]
+pub fn call_player_play_jni(
+    track_json: &str,
+    playlist_json: &str,
+    start_index: i32,
+) -> Result<String, String> {
+    with_jni_env(|env| {
+        let j_track = env.new_string(track_json).map_err(|e| format!("{e}"))?;
+        let j_playlist = env
+            .new_string(playlist_json)
+            .map_err(|e| format!("{e}"))?;
+        let cls = main_activity_class(env)?;
+        let j_val = env
+            .call_static_method(
+                &cls,
+                "nativePlayerPlay",
+                "(Ljava/lang/String;Ljava/lang/String;I)Ljava/lang/String;",
+                &[
+                    (&j_track).into(),
+                    (&j_playlist).into(),
+                    jni::objects::JValue::Int(start_index),
+                ],
+            )
+            .map_err(|e| format!("Failed to call nativePlayerPlay: {e}"))?;
+        let j_obj = j_val.l().map_err(|e| format!("Expected object: {e}"))?;
+        if j_obj.as_raw().is_null() {
+            return Ok("OK".to_string());
+        }
+        let j_str = jni::objects::JString::from(j_obj);
+        let s: String = env.get_string(&j_str).map_err(|e| format!("{e}"))?.into();
+        Ok(s)
+    })
+}
+
+#[cfg(not(target_os = "android"))]
+pub fn call_player_play_jni(
+    _track_json: &str,
+    _playlist_json: &str,
+    _start_index: i32,
+) -> Result<String, String> {
+    Ok("OK".to_string())
+}
+
+#[cfg(target_os = "android")]
+pub fn call_player_seek_jni(position_ms: i64) -> Result<String, String> {
+    with_jni_env(|env| {
+        let cls = main_activity_class(env)?;
+        let j_val = env
+            .call_static_method(
+                &cls,
+                "nativePlayerSeekTo",
+                "(J)Ljava/lang/String;",
+                &[jni::objects::JValue::Long(position_ms)],
+            )
+            .map_err(|e| format!("Failed to call nativePlayerSeekTo: {e}"))?;
+        let j_obj = j_val.l().map_err(|e| format!("Expected object: {e}"))?;
+        if j_obj.as_raw().is_null() {
+            return Ok("OK".to_string());
+        }
+        let j_str = jni::objects::JString::from(j_obj);
+        let s: String = env.get_string(&j_str).map_err(|e| format!("{e}"))?.into();
+        Ok(s)
+    })
+}
+
+#[cfg(not(target_os = "android"))]
+pub fn call_player_seek_jni(_position_ms: i64) -> Result<String, String> {
+    Ok("OK".to_string())
+}
+
+#[cfg(target_os = "android")]
+pub fn call_player_set_shuffle_jni(enabled: bool) -> Result<String, String> {
+    with_jni_env(|env| {
+        let cls = main_activity_class(env)?;
+        let j_val = env
+            .call_static_method(
+                &cls,
+                "nativePlayerSetShuffleMode",
+                "(Z)Ljava/lang/String;",
+                &[jni::objects::JValue::Bool(if enabled { 1 } else { 0 })],
+            )
+            .map_err(|e| format!("Failed to call nativePlayerSetShuffleMode: {e}"))?;
+        let j_obj = j_val.l().map_err(|e| format!("Expected object: {e}"))?;
+        if j_obj.as_raw().is_null() {
+            return Ok("OK".to_string());
+        }
+        let j_str = jni::objects::JString::from(j_obj);
+        let s: String = env.get_string(&j_str).map_err(|e| format!("{e}"))?.into();
+        Ok(s)
+    })
+}
+
+#[cfg(not(target_os = "android"))]
+pub fn call_player_set_shuffle_jni(_enabled: bool) -> Result<String, String> {
+    Ok("OK".to_string())
+}
+
+#[cfg(target_os = "android")]
+pub fn call_player_set_speed_jni(speed: f32) -> Result<String, String> {
+    with_jni_env(|env| {
+        let cls = main_activity_class(env)?;
+        let j_val = env
+            .call_static_method(
+                &cls,
+                "nativePlayerSetSpeed",
+                "(F)Ljava/lang/String;",
+                &[jni::objects::JValue::Float(speed)],
+            )
+            .map_err(|e| format!("Failed to call nativePlayerSetSpeed: {e}"))?;
+        let j_obj = j_val.l().map_err(|e| format!("Expected object: {e}"))?;
+        if j_obj.as_raw().is_null() {
+            return Ok("OK".to_string());
+        }
+        let j_str = jni::objects::JString::from(j_obj);
+        let s: String = env.get_string(&j_str).map_err(|e| format!("{e}"))?.into();
+        Ok(s)
+    })
+}
+
+#[cfg(not(target_os = "android"))]
+pub fn call_player_set_speed_jni(_speed: f32) -> Result<String, String> {
+    Ok("OK".to_string())
 }

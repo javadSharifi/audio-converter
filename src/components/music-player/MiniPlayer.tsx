@@ -3,7 +3,7 @@ import { useAppStore } from "../../stores/useAppStore";
 import { useMusicPlayerStore } from "../../stores/useMusicPlayerStore";
 import { translate } from "../../i18n";
 import { TrackCover } from "./TrackCover";
-import { Play, Pause, SkipBack, SkipForward, ChevronUp } from "lucide-react";
+import { Play, Pause, SkipBack, SkipForward, X } from "lucide-react";
 
 function formatTime(secs: number): string {
   if (!Number.isFinite(secs) || secs < 0) return "00:00";
@@ -22,6 +22,7 @@ export function MiniPlayer(): React.JSX.Element | null {
   const setFullscreenOpen = useMusicPlayerStore((s) => s.setFullscreenOpen);
   const pauseTrack = useMusicPlayerStore((s) => s.pauseTrack);
   const resumeTrack = useMusicPlayerStore((s) => s.resumeTrack);
+  const closePlayer = useMusicPlayerStore((s) => s.closePlayer);
   const playPreviousTrack = useMusicPlayerStore((s) => s.playPreviousTrack);
   const playNextTrack = useMusicPlayerStore((s) => s.playNextTrack);
   const seekTo = useMusicPlayerStore((s) => s.seekTo);
@@ -134,15 +135,16 @@ export function MiniPlayer(): React.JSX.Element | null {
   };
 
   return (
-    <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-35 w-full max-w-md px-3 sm:px-4 select-none animate-in slide-in-from-bottom duration-200">
+    <div className="fixed bottom-[4.75rem] left-1/2 -translate-x-1/2 z-35 w-full max-w-md px-3 sm:px-4 select-none animate-in slide-in-from-bottom duration-200">
       <div
         onClick={() => setFullscreenOpen(true)}
         className="group relative flex items-center justify-between gap-3 p-3 pt-3.5 rounded-3xl bg-white/95 dark:bg-zinc-900/95 hover:bg-white dark:hover:bg-zinc-900 border border-black/10 dark:border-white/15 shadow-[0_12px_36px_rgba(0,0,0,0.15)] dark:shadow-[0_12px_36px_rgba(0,0,0,0.5)] backdrop-blur-2xl cursor-pointer transition-all duration-200 active:scale-98"
       >
         {/* ============================================================= */}
-        {/* Interactive Scrubbable Top Progress Bar                       */}
+        {/* Interactive Scrubbable Top Progress Bar (Strictly LTR)        */}
         {/* ============================================================= */}
         <div
+          dir="ltr"
           ref={seekbarRef}
           onMouseDown={handleMouseDown}
           onTouchStart={handleTouchStart}
@@ -183,7 +185,7 @@ export function MiniPlayer(): React.JSX.Element | null {
         </div>
 
         {/* Left: Artwork + Title & Artist */}
-        <div className="flex items-center gap-3 min-w-0 flex-1">
+        <div className="flex items-center gap-2.5 min-w-0 flex-1">
           <TrackCover track={currentTrack} size="sm" />
           <div className="flex flex-col min-w-0 flex-1">
             <span className="text-xs font-extrabold text-zinc-900 dark:text-white truncate">
@@ -195,8 +197,8 @@ export function MiniPlayer(): React.JSX.Element | null {
           </div>
         </div>
 
-        {/* Right: Controls (Previous, Play/Pause, Next) + Expand Arrow */}
-        <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
+        {/* Right: Controls (Previous, Play/Pause, Next) + Close Button */}
+        <div className="flex items-center gap-0.5 sm:gap-1 shrink-0">
           {/* Previous Track Button */}
           <button
             type="button"
@@ -234,9 +236,19 @@ export function MiniPlayer(): React.JSX.Element | null {
             <SkipForward className="h-4 w-4" />
           </button>
 
-          <div className="flex h-8 w-6 items-center justify-center text-zinc-400 dark:text-zinc-500 group-hover:text-orange-500 transition-colors">
-            <ChevronUp className="h-4 w-4" />
-          </div>
+          {/* Close / Dismiss MiniPlayer Button */}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              closePlayer();
+            }}
+            title={translate(lang, "close")}
+            aria-label={translate(lang, "close")}
+            className="flex h-8 w-8 items-center justify-center rounded-full text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-black/5 dark:hover:bg-white/10 transition-colors cursor-pointer active:scale-90 ms-0.5"
+          >
+            <X className="h-4 w-4" />
+          </button>
         </div>
       </div>
     </div>

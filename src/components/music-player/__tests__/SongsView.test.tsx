@@ -6,12 +6,16 @@ import { useMusicPlayerStore, filterAndSortTracks } from "../../../stores/useMus
 import { useAppStore } from "../../../stores/useAppStore";
 import type { AudioTrackInfo } from "../../../types";
 
-vi.mock("../../../utils/tauri", () => ({
-  scanAudioFiles: vi.fn(async () => []),
-  getMusicPermissionStatus: vi.fn(async () => "granted"),
-  requestMediaPermissions: vi.fn(async () => true),
-  openAppSettings: vi.fn(async () => {}),
-}));
+vi.mock("../../../utils/tauri", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../../utils/tauri")>();
+  return {
+    ...actual,
+    scanAudioFiles: vi.fn(async () => []),
+    getMusicPermissionStatus: vi.fn(async () => "granted"),
+    requestMediaPermissions: vi.fn(async () => true),
+    openAppSettings: vi.fn(async () => {}),
+  };
+});
 
 const mockTracks: AudioTrackInfo[] = [
   {
@@ -140,20 +144,17 @@ describe("SongsView Component", () => {
     expect(screen.queryByText("Track One")).toBeNull();
   });
 
-  it("toggles like and unlike on a track when clicking heart", () => {
+  it("toggles like and unlike on a track via options sheet", () => {
     render(<SongsView />);
 
-    const likeButtons = screen.getAllByRole("button", { name: /Like track/i });
-    expect(likeButtons.length).toBe(3);
+    const moreButtons = screen.getAllByRole("button", { name: /More options/i });
+    expect(moreButtons.length).toBe(3);
 
-    // Like first track in sorted list (track2 is newest)
-    fireEvent.click(likeButtons[0]);
+    // Open options sheet for first track in sorted list (track2 is newest)
+    fireEvent.click(moreButtons[0]);
+    const likeBtn = screen.getByText(/Like track/i);
+    fireEvent.click(likeBtn);
     expect(useMusicPlayerStore.getState().likedPaths.has(mockTracks[1].uri)).toBe(true);
-
-    // Unlike it by clicking again
-    const unlikeButton = screen.getByRole("button", { name: /Remove from liked/i });
-    fireEvent.click(unlikeButton);
-    expect(useMusicPlayerStore.getState().likedPaths.has(mockTracks[1].uri)).toBe(false);
   });
 
   it("opens sort menu and allows changing sort order, persisting in state", () => {

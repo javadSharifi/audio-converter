@@ -132,7 +132,7 @@ export function WaveformSeekbar({
   }, [isDragging, dragProgress, duration, onSeek, calculateProgressFromEvent]);
 
   return (
-    <div className="flex flex-col w-full gap-2 select-none py-1">
+    <div dir="ltr" className="flex flex-col w-full gap-2 select-none py-1">
       {/* Waveform Bars Container */}
       <div
         ref={containerRef}

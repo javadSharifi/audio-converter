@@ -2,6 +2,79 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* ========================================================================= */
+/* IRANSans Web Font Definitions                                            */
+/* ========================================================================= */
+@font-face {
+  font-family: "IRANSans";
+  font-style: normal;
+  font-weight: 200;
+  src: url("./fonts/IRANSans-UltraLight-web.woff2") format("woff2"),
+       url("./fonts/IRANSans-UltraLight-web.woff") format("woff"),
+       url("./fonts/IRANSans-UltraLight-web.ttf") format("truetype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "IRANSans";
+  font-style: normal;
+  font-weight: 300;
+  src: url("./fonts/IRANSans-Light-web.woff2") format("woff2"),
+       url("./fonts/IRANSans-Light-web.woff") format("woff"),
+       url("./fonts/IRANSans-Light-web.ttf") format("truetype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "IRANSans";
+  font-style: normal;
+  font-weight: 400;
+  src: url("./fonts/IRANSans-web.woff2") format("woff2"),
+       url("./fonts/IRANSans-web.woff") format("woff"),
+       url("./fonts/IRANSans-web.ttf") format("truetype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "IRANSans";
+  font-style: normal;
+  font-weight: 500;
+  src: url("./fonts/IRANSans-Medium-web.woff2") format("woff2"),
+       url("./fonts/IRANSans-Medium-web.woff") format("woff"),
+       url("./fonts/IRANSans-Medium-web.ttf") format("truetype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "IRANSans";
+  font-style: normal;
+  font-weight: 700;
+  src: url("./fonts/IRANSans-Bold-web.woff2") format("woff2"),
+       url("./fonts/IRANSans-Bold-web.woff") format("woff"),
+       url("./fonts/IRANSans-Bold-web.ttf") format("truetype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "IRANSansFaNum";
+  font-style: normal;
+  font-weight: 400;
+  src: url("./fonts/IRANSansWeb(FaNum).woff2") format("woff2"),
+       url("./fonts/IRANSansWeb(FaNum).woff") format("woff"),
+       url("./fonts/IRANSansWeb(FaNum).ttf") format("truetype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "IRANSansFaNum";
+  font-style: normal;
+  font-weight: 700;
+  src: url("./fonts/IRANSansWeb(FaNum)_Bold.woff2") format("woff2"),
+       url("./fonts/IRANSansWeb(FaNum)_Bold.woff") format("woff"),
+       url("./fonts/IRANSansWeb(FaNum)_Bold.ttf") format("truetype");
+  font-display: swap;
+}
+
 html,
 body,
 #root {
@@ -14,7 +87,7 @@ body,
 
 body {
   font-family:
-    "Vazirmatn", -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Inter",
+    "IRANSans", "Vazirmatn", -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Inter",
     ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif;
   user-select: none;
   -webkit-font-smoothing: antialiased;
@@ -23,13 +96,13 @@ body {
 
 html[data-font="sans"] body {
   font-family:
-    -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Inter",
+    "IRANSans", -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Inter",
     ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif;
 }
 
 html[data-font="vazir"] body {
   font-family:
-    "Vazirmatn", -apple-system, BlinkMacSystemFont, "SF Pro Display", "Inter",
+    "IRANSans", "Vazirmatn", -apple-system, BlinkMacSystemFont, "SF Pro Display", "Inter",
     ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif;
 }
 
@@ -124,4 +197,3 @@ html[data-font="vazir"] body {
 .animate-music-bar-3 {
   animation: music-bar-3 0.9s ease-in-out infinite;
 }
-

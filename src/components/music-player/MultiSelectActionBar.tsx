@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { useAppStore } from "../../stores/useAppStore";
-import { useMusicPlayerStore } from "../../stores/useMusicPlayerStore";
+import { useMusicPlayerStore, isTrackLiked } from "../../stores/useMusicPlayerStore";
 import { translate } from "../../i18n";
 import { AddToAlbumModal } from "./AddToAlbumModal";
 import {
@@ -11,6 +11,7 @@ import {
   FolderPlus,
   Trash2,
   AlertTriangle,
+  Heart,
 } from "lucide-react";
 import type { AudioTrackInfo } from "../../types";
 
@@ -28,9 +29,11 @@ export function MultiSelectActionBar({
 
   const isSelectionMode = useMusicPlayerStore((s) => s.isSelectionMode);
   const selectedTrackKeys = useMusicPlayerStore((s) => s.selectedTrackKeys);
+  const likedPaths = useMusicPlayerStore((s) => s.likedPaths);
   const exitSelectionMode = useMusicPlayerStore((s) => s.exitSelectionMode);
   const selectAllTracks = useMusicPlayerStore((s) => s.selectAllTracks);
   const clearSelection = useMusicPlayerStore((s) => s.clearSelection);
+  const toggleLikeMultiple = useMusicPlayerStore((s) => s.toggleLikeMultiple);
   const deleteMultipleTracks = useMusicPlayerStore((s) => s.deleteMultipleTracks);
 
   const [albumModalOpen, setAlbumModalOpen] = useState(false);
@@ -66,6 +69,21 @@ export function MultiSelectActionBar({
     setActiveTool("converter");
   };
 
+  const allSelectedLiked =
+    selectedTracks.length > 0 &&
+    selectedTracks.every((t) => isTrackLiked(t, likedPaths));
+
+  const handleToggleLikeMultiple = () => {
+    if (selectedTracks.length === 0) return;
+    const didLike = toggleLikeMultiple(selectedTracks);
+    pushToast(
+      "info",
+      translate(lang, didLike ? "multiLikedSuccess" : "multiUnlikedSuccess", {
+        count: selectedTracks.length,
+      }),
+    );
+  };
+
   const handleConfirmDelete = async () => {
     if (selectedTracks.length === 0) return;
     setDeleting(true);
@@ -84,17 +102,17 @@ export function MultiSelectActionBar({
   return (
     <>
       <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-40 w-full max-w-md px-3 sm:px-4 select-none animate-in slide-in-from-bottom duration-200">
-        <div className="flex items-center justify-between gap-2 p-3 rounded-3xl bg-zinc-900/95 text-white border border-white/15 shadow-[0_16px_40px_rgba(0,0,0,0.6)] backdrop-blur-2xl">
+        <div className="flex items-center justify-between gap-2 p-3 rounded-3xl bg-white/95 dark:bg-zinc-900/95 text-zinc-900 dark:text-white border border-black/10 dark:border-white/15 shadow-[0_16px_40px_rgba(0,0,0,0.12)] dark:shadow-[0_16px_40px_rgba(0,0,0,0.6)] backdrop-blur-2xl">
           {/* Left: Count & Select All */}
           <div className="flex items-center gap-2 min-w-0">
             <button
               type="button"
               onClick={handleToggleSelectAll}
               title={translate(lang, allSelected ? "deselectAll" : "selectAll")}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-2xl bg-white/10 hover:bg-white/15 text-xs font-bold text-amber-300 transition-colors cursor-pointer active:scale-95"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-2xl bg-orange-500/10 hover:bg-orange-500/15 dark:bg-white/10 dark:hover:bg-white/15 text-xs font-bold text-orange-600 dark:text-amber-300 transition-colors cursor-pointer active:scale-95"
             >
               {allSelected ? (
-                <CheckSquare className="h-4 w-4 text-orange-400" />
+                <CheckSquare className="h-4 w-4 text-orange-500" />
               ) : (
                 <Square className="h-4 w-4 text-zinc-400" />
               )}
@@ -104,7 +122,7 @@ export function MultiSelectActionBar({
             </button>
           </div>
 
-          {/* Right Actions: Convert, Add to Album, Delete, Exit */}
+          {/* Right Actions: Convert, Like, Add to Album, Delete, Exit */}
           <div className="flex items-center gap-1.5 shrink-0">
             {/* 1. Convert Action */}
             <button
@@ -118,36 +136,52 @@ export function MultiSelectActionBar({
               <span className="hidden sm:inline">{translate(lang, "convertSelected")}</span>
             </button>
 
-            {/* 2. Add to Album Action */}
+            {/* 2. Like / Unlike Bulk Action */}
+            <button
+              type="button"
+              disabled={selectedTracks.length === 0}
+              onClick={handleToggleLikeMultiple}
+              title={translate(lang, allSelectedLiked ? "unlikeSelected" : "likeSelected")}
+              className={`flex items-center justify-center h-8 w-8 rounded-2xl transition-colors cursor-pointer active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed ${
+                allSelectedLiked
+                  ? "bg-rose-500/25 text-rose-500 border border-rose-500/40"
+                  : "bg-black/[0.05] hover:bg-black/10 dark:bg-white/10 dark:hover:bg-white/20 text-rose-500 dark:text-rose-300"
+              }`}
+            >
+              <Heart className={`h-4 w-4 ${allSelectedLiked ? "fill-rose-500" : ""}`} />
+            </button>
+
+            {/* 3. Add to Album Action */}
             <button
               type="button"
               disabled={selectedTracks.length === 0}
               onClick={() => setAlbumModalOpen(true)}
               title={translate(lang, "addToAlbum")}
-              className="flex items-center justify-center h-8 w-8 rounded-2xl bg-white/10 hover:bg-white/20 text-amber-200 transition-colors cursor-pointer active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
+              className="flex items-center justify-center h-8 w-8 rounded-2xl bg-black/[0.05] hover:bg-black/10 dark:bg-white/10 dark:hover:bg-white/20 text-zinc-700 dark:text-amber-200 transition-colors cursor-pointer active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <FolderPlus className="h-4 w-4" />
             </button>
 
-            {/* 3. Delete Action */}
+            {/* 4. Delete Action */}
             <button
               type="button"
               disabled={selectedTracks.length === 0}
               onClick={() => setDeleteConfirmOpen(true)}
               title={translate(lang, "deleteSelected")}
-              className="flex items-center justify-center h-8 w-8 rounded-2xl bg-rose-500/20 hover:bg-rose-500/30 text-rose-400 border border-rose-500/30 transition-colors cursor-pointer active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
+              className="flex items-center justify-center h-8 w-8 rounded-2xl bg-rose-500/10 hover:bg-rose-500/20 dark:bg-rose-500/20 dark:hover:bg-rose-500/30 text-rose-600 dark:text-rose-400 border border-rose-500/25 transition-colors cursor-pointer active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <Trash2 className="h-4 w-4" />
             </button>
 
-            {/* Cancel Selection Mode Button */}
+            {/* 5. Clean Cancel Button */}
             <button
               type="button"
               onClick={exitSelectionMode}
-              title={translate(lang, "cancel")}
-              className="flex items-center justify-center h-8 w-8 rounded-full bg-white/10 hover:bg-white/20 text-zinc-400 hover:text-white transition-colors cursor-pointer active:scale-90"
+              title={translate(lang, "exitSelection")}
+              className="flex items-center gap-1 h-8 px-2.5 rounded-2xl bg-black/[0.05] hover:bg-black/10 dark:bg-white/10 dark:hover:bg-white/20 text-zinc-600 dark:text-zinc-300 text-xs font-semibold transition-colors cursor-pointer active:scale-95"
             >
-              <X className="h-4 w-4" />
+              <X className="h-3.5 w-3.5" />
+              <span className="text-[11px] font-bold">{translate(lang, "exitSelection")}</span>
             </button>
           </div>
         </div>

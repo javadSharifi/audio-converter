@@ -7,11 +7,19 @@
     public <methods>;
     *;
 }
+-keep class com.audioconverter.app.PlaybackService {
+    public <methods>;
+    *;
+}
 -keepclassmembers class com.audioconverter.app.MainActivity {
     public static <methods>;
     *;
 }
 -keepclassmembers class com.audioconverter.app.MainActivity$Companion {
+    public <methods>;
+    *;
+}
+-keepclassmembers class com.audioconverter.app.PlaybackService {
     public <methods>;
     *;
 }

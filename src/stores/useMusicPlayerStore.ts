@@ -18,9 +18,15 @@ import {
 } from "./musicPlayer/persistence";
 import {
   bindMusicStore,
-  getGlobalAudio,
   getGlobalGainNode,
-  resolveAudioSource,
+  unifiedPlayTrack,
+  unifiedPause,
+  unifiedResume,
+  unifiedSeekTo,
+  unifiedSetRepeatMode,
+  unifiedSetShuffleMode,
+  unifiedSetSpeed,
+  unifiedStop,
 } from "./musicPlayer/audioEngine";
 import { getTrackKey, getTrackAliases, isTrackLiked } from "./musicPlayer/trackUtils";
 
@@ -69,6 +75,7 @@ export interface MusicPlayerState {
   setSearchQuery: (query: string) => void;
   setSortBy: (sort: MusicSortOption) => void;
   toggleLike: (trackOrKey: AudioTrackInfo | string) => void;
+  toggleLikeMultiple: (tracksToToggle: AudioTrackInfo[]) => boolean;
   isLiked: (trackOrKey: AudioTrackInfo | string) => boolean;
   addCustomFolder: (path: string) => Promise<void>;
   removeCustomFolder: (path: string) => Promise<void>;
@@ -77,6 +84,7 @@ export interface MusicPlayerState {
   playTrack: (track: AudioTrackInfo, playlist?: AudioTrackInfo[]) => Promise<void>;
   pauseTrack: () => void;
   resumeTrack: () => void;
+  closePlayer: () => void;
   togglePlayTrack: (track: AudioTrackInfo, playlist?: AudioTrackInfo[]) => Promise<void>;
   playNextTrack: (auto?: boolean) => Promise<void>;
   playPreviousTrack: () => Promise<void>;
@@ -199,6 +207,33 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
     });
   },
 
+  toggleLikeMultiple(tracksToToggle) {
+    if (tracksToToggle.length === 0) return false;
+    let didLike = false;
+    set((state) => {
+      const next = new Set(state.likedPaths);
+      const allLiked = tracksToToggle.every((t) => isTrackLiked(t, state.likedPaths));
+      didLike = !allLiked;
+
+      for (const track of tracksToToggle) {
+        const aliases = getTrackAliases(track);
+        if (allLiked) {
+          // Unlike all
+          aliases.forEach((k) => next.delete(k));
+        } else {
+          // Like all
+          const primaryKey = getTrackKey(track);
+          aliases.forEach((k) => next.delete(k));
+          next.add(primaryKey);
+        }
+      }
+
+      persistLikedPaths(next);
+      return { likedPaths: next };
+    });
+    return didLike;
+  },
+
   isLiked(trackOrKey) {
     return isTrackLiked(trackOrKey, get().likedPaths, get().tracks);
   },
@@ -218,79 +253,49 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
   },
 
   async playTrack(track, playlist) {
-    const audio = getGlobalAudio();
     if (playlist) {
       set({ currentPlaylist: playlist });
     }
 
+    const currentList = playlist || get().currentPlaylist || get().tracks;
+    const startIndex = currentList.findIndex(
+      (t) => t.id === track.id || t.uri === track.uri || (t.path && t.path === track.path),
+    );
+
     const current = get().currentTrack;
-    if (current && (current.id === track.id || current.uri === track.uri) && audio && audio.src) {
-      if (audio.paused) {
-        try {
-          const p = audio.play();
-          if (p && typeof p.catch === "function") {
-            p.catch((err) => console.warn("Audio play error:", err));
-          }
-        } catch {}
-        set({ isPlaying: true });
-      }
+    if (current && (current.id === track.id || current.uri === track.uri) && get().isPlaying) {
       return;
     }
 
-    if (audio) {
-      try {
-        audio.pause();
-      } catch {}
-      audio.currentTime = 0;
-      set({
-        currentTrack: track,
-        isPlaying: true,
-        currentTime: 0,
-        duration: track.durationSecs || 0,
-      });
+    set({
+      currentTrack: track,
+      isPlaying: true,
+      currentTime: 0,
+      duration: track.durationSecs || 0,
+    });
 
-      try {
-        const src = await resolveAudioSource(track);
-        const latest = get().currentTrack;
-        if (!latest || getTrackKey(latest) !== getTrackKey(track)) {
-          return;
-        }
-        audio.src = src;
-        const p = audio.play();
-        if (p && typeof p.catch === "function") {
-          p.catch((err) => {
-            console.warn("Audio play error:", err);
-            set({ isPlaying: false });
-          });
-        }
-      } catch (err) {
-        console.warn("Failed to play track:", err);
-        set({ isPlaying: false });
-      }
-    }
+    await unifiedPlayTrack(track, currentList, startIndex >= 0 ? startIndex : 0);
   },
 
   pauseTrack() {
-    const audio = getGlobalAudio();
-    if (audio) {
-      try {
-        audio.pause();
-      } catch {}
-      set({ isPlaying: false });
-    }
+    void unifiedPause();
+    set({ isPlaying: false });
+  },
+
+  closePlayer() {
+    void unifiedStop();
+    set({
+      currentTrack: null,
+      isPlaying: false,
+      currentTime: 0,
+      duration: 0,
+      fullscreenOpen: false,
+    });
   },
 
   resumeTrack() {
-    const audio = getGlobalAudio();
-    if (audio && audio.src) {
-      try {
-        const p = audio.play();
-        if (p && typeof p.catch === "function") {
-          p.catch((err) => console.warn("Audio resume error:", err));
-        }
-      } catch {}
-      set({ isPlaying: true });
-    }
+    void unifiedResume();
+    set({ isPlaying: true });
   },
 
   async togglePlayTrack(track, playlist) {
@@ -381,9 +386,8 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
   },
 
   seekTo(timeSecs) {
-    const audio = getGlobalAudio();
-    if (audio && Number.isFinite(timeSecs)) {
-      audio.currentTime = timeSecs;
+    if (Number.isFinite(timeSecs)) {
+      void unifiedSeekTo(timeSecs);
       set({ currentTime: timeSecs });
     }
   },
@@ -391,11 +395,14 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
   toggleRepeat() {
     const current = get().repeatMode;
     const next = current === "off" ? "all" : current === "all" ? "one" : "off";
+    void unifiedSetRepeatMode(next);
     set({ repeatMode: next });
   },
 
   toggleShuffle() {
-    set((s) => ({ shuffleMode: !s.shuffleMode }));
+    const next = !get().shuffleMode;
+    void unifiedSetShuffleMode(next);
+    set({ shuffleMode: next });
   },
 
   setFullscreenOpen(open) {
@@ -404,10 +411,7 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
 
   setPlaybackRate(rate) {
     const clamped = Math.max(0.25, Math.min(4.0, rate));
-    const audio = getGlobalAudio();
-    if (audio) {
-      audio.playbackRate = clamped;
-    }
+    void unifiedSetSpeed(clamped);
     set({ playbackRate: clamped });
   },
 

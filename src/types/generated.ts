@@ -78,6 +78,28 @@ export const commands = {
 	setAsRingtone: (pathOrUri: string) => typedError<null, AppError>(__TAURI_INVOKE("set_as_ringtone", { pathOrUri })),
 	/**  Share track via system share sheet. */
 	shareAudioTrack: (pathOrUri: string, title: string, mimeType: string) => typedError<null, AppError>(__TAURI_INVOKE("share_audio_track", { pathOrUri, title, mimeType })),
+	/**  Play a track or playlist via native Jetpack Media3 (Android). */
+	androidPlayerPlay: (trackJson: string, playlistJson: string | null, startIndex: number | null) => typedError<string, AppError>(__TAURI_INVOKE("android_player_play", { trackJson, playlistJson, startIndex })),
+	/**  Pause playback via native Jetpack Media3. */
+	androidPlayerPause: () => typedError<string, AppError>(__TAURI_INVOKE("android_player_pause")),
+	/**  Resume playback via native Jetpack Media3. */
+	androidPlayerResume: () => typedError<string, AppError>(__TAURI_INVOKE("android_player_resume")),
+	/**  Seek playback to timestamp in milliseconds via native Jetpack Media3. */
+	androidPlayerSeekTo: (positionMs: number) => typedError<string, AppError>(__TAURI_INVOKE("android_player_seek_to", { positionMs })),
+	/**  Skip to next media item via native Jetpack Media3. */
+	androidPlayerNext: () => typedError<string, AppError>(__TAURI_INVOKE("android_player_next")),
+	/**  Skip to previous media item via native Jetpack Media3. */
+	androidPlayerPrevious: () => typedError<string, AppError>(__TAURI_INVOKE("android_player_previous")),
+	/**  Set repeat mode ('off', 'one', 'all') via native Jetpack Media3. */
+	androidPlayerSetRepeatMode: (mode: string) => typedError<string, AppError>(__TAURI_INVOKE("android_player_set_repeat_mode", { mode })),
+	/**  Set shuffle mode enabled/disabled via native Jetpack Media3. */
+	androidPlayerSetShuffleMode: (enabled: boolean) => typedError<string, AppError>(__TAURI_INVOKE("android_player_set_shuffle_mode", { enabled })),
+	/**  Set playback speed (e.g. 1.0, 1.25) via native Jetpack Media3. */
+	androidPlayerSetSpeed: (speed: number | null) => typedError<string, AppError>(__TAURI_INVOKE("android_player_set_speed", { speed })),
+	/**  Stop playback via native Jetpack Media3. */
+	androidPlayerStop: () => typedError<string, AppError>(__TAURI_INVOKE("android_player_stop")),
+	/**  Query live playback state from native Jetpack Media3. */
+	androidPlayerGetState: () => __TAURI_INVOKE<string>("android_player_get_state"),
 };
 
 /* Types */

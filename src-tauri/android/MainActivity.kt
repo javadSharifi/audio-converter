@@ -85,6 +85,9 @@ class MainActivity : TauriActivity() {
       Log.e(TAG, "Failed to initialize MainActivity", e)
     }
     super.onCreate(savedInstanceState)
+    try {
+      configureWebViewSettings()
+    } catch (_: Throwable) {}
   }
 
   override fun onNewIntent(intent: Intent) {
@@ -115,9 +118,41 @@ class MainActivity : TauriActivity() {
 
   override fun onResume() {
     super.onResume()
-    // Safety net: if the first attempt ran before the Rust lib was loaded,
-    // initialize now that it certainly is (also re-registers after crash).
+    instance = this
     initNativePathsSafe()
+    try {
+      configureWebViewSettings()
+    } catch (_: Throwable) {}
+  }
+
+  private fun configureWebViewSettings() {
+    val decor = window?.decorView ?: return
+    decor.post {
+      try {
+        val webView = findWebView(decor)
+        webView?.settings?.apply {
+          mediaPlaybackRequiresUserGesture = false
+          allowFileAccess = true
+          allowContentAccess = true
+          domStorageEnabled = true
+          databaseEnabled = true
+        }
+        Log.i(TAG, "Configured WebView settings: mediaPlaybackRequiresUserGesture = false")
+      } catch (t: Throwable) {
+        Log.w(TAG, "configureWebViewSettings failed", t)
+      }
+    }
+  }
+
+  private fun findWebView(view: android.view.View): android.webkit.WebView? {
+    if (view is android.webkit.WebView) return view
+    if (view is android.view.ViewGroup) {
+      for (i in 0 until view.childCount) {
+        val child = findWebView(view.getChildAt(i))
+        if (child != null) return child
+      }
+    }
+    return null
   }
 
   override fun onDestroy() {
@@ -162,6 +197,9 @@ class MainActivity : TauriActivity() {
       if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_VIDEO) != PackageManager.PERMISSION_GRANTED) {
         neededPermissions.add(Manifest.permission.READ_MEDIA_VIDEO)
       }
+      if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+        neededPermissions.add(Manifest.permission.POST_NOTIFICATIONS)
+      }
     } else { // Android 12 and below
       if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
         neededPermissions.add(Manifest.permission.READ_EXTERNAL_STORAGE)
@@ -169,7 +207,7 @@ class MainActivity : TauriActivity() {
     }
 
     if (neededPermissions.isNotEmpty()) {
-      Log.i(TAG, "Requesting media permissions: $neededPermissions")
+      Log.i(TAG, "Requesting media and notification permissions: $neededPermissions")
       ActivityCompat.requestPermissions(this, neededPermissions.toTypedArray(), PERMISSION_REQ_CODE)
       return false
     }
@@ -241,7 +279,10 @@ class MainActivity : TauriActivity() {
 
     @JvmStatic
     fun requestMediaPermissions() {
-      instance?.checkAndRequestMediaPermissions()
+      val act = instance ?: return
+      android.os.Handler(android.os.Looper.getMainLooper()).post {
+        act.checkAndRequestMediaPermissions()
+      }
     }
 
     @JvmStatic
@@ -256,7 +297,6 @@ class MainActivity : TauriActivity() {
       } catch (t: Throwable) {
         Log.w(TAG, "openAppSettings failed", t)
       }
-    }
     }
 
     /**
@@ -455,10 +495,10 @@ class MainActivity : TauriActivity() {
       } else {
         Manifest.permission.READ_EXTERNAL_STORAGE
       }
-      return when {
-        ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED -> "granted"
-        instance?.let { ActivityCompat.shouldShowRequestPermissionRationale(it, permission) } == true -> "denied"
-        else -> "permanently_denied"
+      return if (ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED) {
+        "granted"
+      } else {
+        "denied"
       }
     }
 
@@ -479,7 +519,8 @@ class MainActivity : TauriActivity() {
         android.provider.MediaStore.Audio.Media.DISPLAY_NAME,
         android.provider.MediaStore.Audio.Media.DATE_ADDED,
         android.provider.MediaStore.Audio.Media.DATE_MODIFIED,
-        android.provider.MediaStore.Audio.Media.ALBUM_ID
+        android.provider.MediaStore.Audio.Media.ALBUM_ID,
+        android.provider.MediaStore.Audio.Media.DATA
       )
 
       val selection = "${android.provider.MediaStore.Audio.Media.IS_MUSIC} != 0"
@@ -504,6 +545,7 @@ class MainActivity : TauriActivity() {
           val addedCol = cursor.getColumnIndex(android.provider.MediaStore.Audio.Media.DATE_ADDED)
           val modCol = cursor.getColumnIndex(android.provider.MediaStore.Audio.Media.DATE_MODIFIED)
           val albumIdCol = cursor.getColumnIndex(android.provider.MediaStore.Audio.Media.ALBUM_ID)
+          val dataCol = cursor.getColumnIndex(android.provider.MediaStore.Audio.Media.DATA)
 
           while (cursor.moveToNext()) {
             val id = cursor.getLong(idCol)
@@ -523,13 +565,15 @@ class MainActivity : TauriActivity() {
             val mod = if (modCol >= 0) cursor.getLong(modCol) * 1000L else added
             val albumId = if (albumIdCol >= 0) cursor.getLong(albumIdCol) else -1L
             val coverUri = if (albumId > 0) "content://media/external/audio/albumart/$albumId" else null
+            val rawPath = if (dataCol >= 0) cursor.getString(dataCol) else null
+            val validPath = if (!rawPath.isNullOrBlank() && File(rawPath).exists() && File(rawPath).canRead()) rawPath else null
 
             val ext = if (name.contains('.')) name.substringAfterLast('.').lowercase() else "mp3"
 
             val json = org.json.JSONObject().apply {
               put("id", "android_$id")
               put("uri", uri)
-              put("path", org.json.JSONObject.NULL)
+              put("path", if (validPath != null) validPath else org.json.JSONObject.NULL)
               put("name", name)
               put("title", if (!title.isNullOrBlank()) title else name)
               put("artist", if (!artist.isNullOrBlank() && artist != "<unknown>") artist else org.json.JSONObject.NULL)
@@ -656,10 +700,21 @@ class MainActivity : TauriActivity() {
       val stem = if (dot > 0) safeName.substring(0, dot) else safeName
       val ext = if (dot > 0) safeName.substring(dot) else ""
       var destFile = File(stagingDir, safeName)
+
+      // Reuse if already staged with matching non-zero size
+      if (destFile.exists() && destFile.length() > 0 && (reportedSize <= 0 || destFile.length() == reportedSize)) {
+        Log.i(TAG, "Reusing already staged file: ${destFile.absolutePath}")
+        return destFile.absolutePath
+      }
+
       var n = 1
       var claimed = destFile.createNewFile()
       while (!claimed) {
         destFile = File(stagingDir, "$stem ($n)$ext")
+        if (destFile.exists() && destFile.length() > 0 && (reportedSize <= 0 || destFile.length() == reportedSize)) {
+          Log.i(TAG, "Reusing already staged file: ${destFile.absolutePath}")
+          return destFile.absolutePath
+        }
         claimed = destFile.createNewFile()
         n++
       }
@@ -776,6 +831,73 @@ class MainActivity : TauriActivity() {
         Log.e(TAG, "Failed to share audio track: $uriString", e)
         e.message ?: "Unknown error"
       }
+    }
+
+    // --- Jetpack Media3 Playback Bridge Methods ---
+
+    @JvmStatic
+    fun nativePlayerPlay(trackJson: String, playlistJson: String, startIndex: Int): String {
+      val ctx = appContext ?: instance?.applicationContext ?: return "CONTEXT_NULL"
+      return PlaybackService.playTrack(ctx, trackJson, playlistJson, startIndex)
+    }
+
+    @JvmStatic
+    fun nativePlayerPause(): String {
+      val ctx = appContext ?: instance?.applicationContext ?: return "CONTEXT_NULL"
+      return PlaybackService.pause(ctx)
+    }
+
+    @JvmStatic
+    fun nativePlayerResume(): String {
+      val ctx = appContext ?: instance?.applicationContext ?: return "CONTEXT_NULL"
+      return PlaybackService.resume(ctx)
+    }
+
+    @JvmStatic
+    fun nativePlayerSeekTo(positionMs: Long): String {
+      val ctx = appContext ?: instance?.applicationContext ?: return "CONTEXT_NULL"
+      return PlaybackService.seekTo(ctx, positionMs)
+    }
+
+    @JvmStatic
+    fun nativePlayerNext(): String {
+      val ctx = appContext ?: instance?.applicationContext ?: return "CONTEXT_NULL"
+      return PlaybackService.next(ctx)
+    }
+
+    @JvmStatic
+    fun nativePlayerPrevious(): String {
+      val ctx = appContext ?: instance?.applicationContext ?: return "CONTEXT_NULL"
+      return PlaybackService.previous(ctx)
+    }
+
+    @JvmStatic
+    fun nativePlayerSetRepeatMode(mode: String): String {
+      val ctx = appContext ?: instance?.applicationContext ?: return "CONTEXT_NULL"
+      return PlaybackService.setRepeatMode(ctx, mode)
+    }
+
+    @JvmStatic
+    fun nativePlayerSetShuffleMode(enabled: Boolean): String {
+      val ctx = appContext ?: instance?.applicationContext ?: return "CONTEXT_NULL"
+      return PlaybackService.setShuffleMode(ctx, enabled)
+    }
+
+    @JvmStatic
+    fun nativePlayerSetSpeed(speed: Float): String {
+      val ctx = appContext ?: instance?.applicationContext ?: return "CONTEXT_NULL"
+      return PlaybackService.setPlaybackSpeed(ctx, speed)
+    }
+
+    @JvmStatic
+    fun nativePlayerStop(): String {
+      val ctx = appContext ?: instance?.applicationContext ?: return "CONTEXT_NULL"
+      return PlaybackService.stop(ctx)
+    }
+
+    @JvmStatic
+    fun nativePlayerGetState(): String {
+      return PlaybackService.getCurrentStateJson()
     }
   }
 }

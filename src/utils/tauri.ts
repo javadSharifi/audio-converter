@@ -225,6 +225,106 @@ export async function shareAudioTrack(
   }
 }
 
+// --- Jetpack Media3 Android Audio Player Bridge Helpers ---
+
+export async function androidPlayerPlay(
+  trackJson: string,
+  playlistJson?: string,
+  startIndex?: number,
+): Promise<string> {
+  const res = await commands.androidPlayerPlay(
+    trackJson,
+    playlistJson ?? null,
+    startIndex ?? null,
+  );
+  if (res.status === "error") {
+    throw new Error(formatAppError(res.error));
+  }
+  return res.data;
+}
+
+export async function androidPlayerPause(): Promise<string> {
+  const res = await commands.androidPlayerPause();
+  if (res.status === "error") {
+    throw new Error(formatAppError(res.error));
+  }
+  return res.data;
+}
+
+export async function androidPlayerResume(): Promise<string> {
+  const res = await commands.androidPlayerResume();
+  if (res.status === "error") {
+    throw new Error(formatAppError(res.error));
+  }
+  return res.data;
+}
+
+export async function androidPlayerSeekTo(positionMs: number): Promise<string> {
+  const res = await commands.androidPlayerSeekTo(Math.max(0, Math.round(positionMs)));
+  if (res.status === "error") {
+    throw new Error(formatAppError(res.error));
+  }
+  return res.data;
+}
+
+export async function androidPlayerNext(): Promise<string> {
+  const res = await commands.androidPlayerNext();
+  if (res.status === "error") {
+    throw new Error(formatAppError(res.error));
+  }
+  return res.data;
+}
+
+export async function androidPlayerPrevious(): Promise<string> {
+  const res = await commands.androidPlayerPrevious();
+  if (res.status === "error") {
+    throw new Error(formatAppError(res.error));
+  }
+  return res.data;
+}
+
+export async function androidPlayerSetRepeatMode(mode: "off" | "one" | "all"): Promise<string> {
+  const res = await commands.androidPlayerSetRepeatMode(mode);
+  if (res.status === "error") {
+    throw new Error(formatAppError(res.error));
+  }
+  return res.data;
+}
+
+export async function androidPlayerSetShuffleMode(enabled: boolean): Promise<string> {
+  const res = await commands.androidPlayerSetShuffleMode(enabled);
+  if (res.status === "error") {
+    throw new Error(formatAppError(res.error));
+  }
+  return res.data;
+}
+
+export async function androidPlayerSetSpeed(speed: number): Promise<string> {
+  const res = await commands.androidPlayerSetSpeed(speed);
+  if (res.status === "error") {
+    throw new Error(formatAppError(res.error));
+  }
+  return res.data;
+}
+
+export async function androidPlayerStop(): Promise<string> {
+  const res = await commands.androidPlayerStop();
+  if (res.status === "error") {
+    throw new Error(formatAppError(res.error));
+  }
+  return res.data;
+}
+
+export async function androidPlayerGetState(): Promise<Record<string, unknown>> {
+  try {
+    const raw = await commands.androidPlayerGetState();
+    return JSON.parse(raw);
+  } catch {
+    return {};
+  }
+}
+
+
 
 
 

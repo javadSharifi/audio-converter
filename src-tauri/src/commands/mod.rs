@@ -622,6 +622,142 @@ pub async fn share_audio_track(path_or_uri: String, title: String, mime_type: St
     .map_err(|e| AppError::Other(format!("Task failed: {e}")))?
 }
 
+// --- Jetpack Media3 Android Audio Player Commands ---
+
+/// Play a track or playlist via native Jetpack Media3 (Android).
+#[tauri::command]
+#[specta::specta]
+pub async fn android_player_play(
+    track_json: String,
+    playlist_json: Option<String>,
+    start_index: Option<i32>,
+) -> Result<String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let playlist = playlist_json.unwrap_or_else(|| "[]".to_string());
+        let index = start_index.unwrap_or(0);
+        crate::android_fs::call_player_play_jni(&track_json, &playlist, index)
+            .map_err(|e| AppError::Other(e))
+    })
+    .await
+    .map_err(|e| AppError::Other(format!("Task failed: {e}")))?
+}
+
+/// Pause playback via native Jetpack Media3.
+#[tauri::command]
+#[specta::specta]
+pub async fn android_player_pause() -> Result<String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        crate::android_fs::call_static_string_no_arg("nativePlayerPause")
+            .map_err(|e| AppError::Other(e))
+    })
+    .await
+    .map_err(|e| AppError::Other(format!("Task failed: {e}")))?
+}
+
+/// Resume playback via native Jetpack Media3.
+#[tauri::command]
+#[specta::specta]
+pub async fn android_player_resume() -> Result<String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        crate::android_fs::call_static_string_no_arg("nativePlayerResume")
+            .map_err(|e| AppError::Other(e))
+    })
+    .await
+    .map_err(|e| AppError::Other(format!("Task failed: {e}")))?
+}
+
+/// Seek playback to timestamp in milliseconds via native Jetpack Media3.
+#[tauri::command]
+#[specta::specta]
+pub async fn android_player_seek_to(position_ms: u32) -> Result<String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::android_fs::call_player_seek_jni(position_ms as i64)
+            .map_err(|e| AppError::Other(e))
+    })
+    .await
+    .map_err(|e| AppError::Other(format!("Task failed: {e}")))?
+}
+
+/// Skip to next media item via native Jetpack Media3.
+#[tauri::command]
+#[specta::specta]
+pub async fn android_player_next() -> Result<String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        crate::android_fs::call_static_string_no_arg("nativePlayerNext")
+            .map_err(|e| AppError::Other(e))
+    })
+    .await
+    .map_err(|e| AppError::Other(format!("Task failed: {e}")))?
+}
+
+/// Skip to previous media item via native Jetpack Media3.
+#[tauri::command]
+#[specta::specta]
+pub async fn android_player_previous() -> Result<String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        crate::android_fs::call_static_string_no_arg("nativePlayerPrevious")
+            .map_err(|e| AppError::Other(e))
+    })
+    .await
+    .map_err(|e| AppError::Other(format!("Task failed: {e}")))?
+}
+
+/// Set repeat mode ('off', 'one', 'all') via native Jetpack Media3.
+#[tauri::command]
+#[specta::specta]
+pub async fn android_player_set_repeat_mode(mode: String) -> Result<String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::android_fs::call_static_string_1arg("nativePlayerSetRepeatMode", &mode)
+            .map_err(|e| AppError::Other(e))
+    })
+    .await
+    .map_err(|e| AppError::Other(format!("Task failed: {e}")))?
+}
+
+/// Set shuffle mode enabled/disabled via native Jetpack Media3.
+#[tauri::command]
+#[specta::specta]
+pub async fn android_player_set_shuffle_mode(enabled: bool) -> Result<String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::android_fs::call_player_set_shuffle_jni(enabled)
+            .map_err(|e| AppError::Other(e))
+    })
+    .await
+    .map_err(|e| AppError::Other(format!("Task failed: {e}")))?
+}
+
+/// Set playback speed (e.g. 1.0, 1.25) via native Jetpack Media3.
+#[tauri::command]
+#[specta::specta]
+pub async fn android_player_set_speed(speed: f64) -> Result<String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::android_fs::call_player_set_speed_jni(speed as f32)
+            .map_err(|e| AppError::Other(e))
+    })
+    .await
+    .map_err(|e| AppError::Other(format!("Task failed: {e}")))?
+}
+
+/// Stop playback via native Jetpack Media3.
+#[tauri::command]
+#[specta::specta]
+pub async fn android_player_stop() -> Result<String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        crate::android_fs::call_static_string_no_arg("nativePlayerStop")
+            .map_err(|e| AppError::Other(e))
+    })
+    .await
+    .map_err(|e| AppError::Other(format!("Task failed: {e}")))?
+}
+
+/// Query live playback state from native Jetpack Media3.
+#[tauri::command]
+#[specta::specta]
+pub fn android_player_get_state() -> String {
+    crate::android_fs::call_static_string_no_arg("nativePlayerGetState")
+        .unwrap_or_else(|_| "{}".to_string())
+}
+
 
 
 

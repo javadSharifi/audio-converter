@@ -2,6 +2,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { useMusicPlayerStore } from "../../../stores/useMusicPlayerStore";
+import { useAppStore } from "../../../stores/useAppStore";
 import { TrackRow } from "../TrackRow";
 import type { AudioTrackInfo } from "../../../types";
 
@@ -24,6 +25,7 @@ const mockTrack: AudioTrackInfo = {
 
 beforeEach(() => {
   cleanup();
+  useAppStore.setState({ lang: "en" });
   useMusicPlayerStore.setState({
     tracks: [mockTrack],
     currentPlaylist: [mockTrack],
@@ -43,10 +45,15 @@ describe("TrackRow 3-Dots Options Sheet & Details Modal", () => {
     fireEvent.click(moreBtn);
 
     // Options are displayed
+    expect(screen.getByText(/Like track/i)).toBeTruthy();
     expect(screen.getByText(/Share Song/i)).toBeTruthy();
     expect(screen.getByText(/Track Details/i)).toBeTruthy();
     expect(screen.getByText(/Set as Ringtone/i)).toBeTruthy();
     expect(screen.getByText(/Delete Song/i)).toBeTruthy();
+
+    // Toggle Like from 3-dots sheet
+    fireEvent.click(screen.getByText(/Like track/i));
+    expect(useMusicPlayerStore.getState().likedPaths.has("file:///music/summer.mp3")).toBe(true);
   });
 
   it("opens Track Details modal and shows technical metadata", () => {
