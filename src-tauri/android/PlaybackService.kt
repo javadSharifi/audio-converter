@@ -45,6 +45,10 @@ class PlaybackService : MediaSessionService() {
   private var loudnessEnhancer: android.media.audiofx.LoudnessEnhancer? = null
   private var boosterGainDb: Float = 0f
   private var boosterUnsupported: Boolean = false
+  // Media3 1.5 exposes the output session ONLY through the
+  // onAudioSessionIdChanged callback (there is no readable
+  // player.audioSessionId property) — track it here for the enhancer.
+  private var currentAudioSessionId: Int = 0
 
   interface PlaybackEventListener {
     fun onPlaybackStateChanged(stateJson: String)
@@ -125,6 +129,7 @@ class PlaybackService : MediaSessionService() {
           // to a session id, so re-attach (reusing the stored gain) instead
           // of boosting into a dead session.
           try {
+            currentAudioSessionId = audioSessionId
             ensureBoosterAttached()
           } catch (t: Throwable) {
             Log.w(TAG, "Booster re-attach failed", t)
@@ -272,14 +277,10 @@ class PlaybackService : MediaSessionService() {
     // No boost wanted and no effect allocated: don't grab an audio effect
     // for nothing (disabling an existing one still goes through below).
     if (boosterGainDb <= 0.01f && loudnessEnhancer == null) return
-    val pl = player ?: return
-    val sessionId = try {
-      pl.audioSessionId
-    } catch (_: Throwable) {
-      return
-    }
+    if (player == null) return
     // Session not assigned yet (player fresh / nothing prepared): the
     // onAudioSessionIdChanged callback retries once it becomes valid.
+    val sessionId = currentAudioSessionId
     if (sessionId == 0 || sessionId == android.media.AudioManager.ERROR) return
     val current = loudnessEnhancer
     if (current != null) {
