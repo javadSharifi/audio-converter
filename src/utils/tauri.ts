@@ -200,6 +200,34 @@ export async function getMusicPermissionStatus(): Promise<import("../types").Lib
   }
 }
 
+/** Whether system notifications are allowed (media notification + lock-screen player depend on it). Fail-open on desktop/errors. */
+export async function hasNotificationPermission(): Promise<boolean> {
+  try {
+    return await commands.getNotificationPermissionStatus();
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * Lazily resolve one track's embedded cover to a streamable asset:// URL.
+ * Returns null when the file has no embedded picture (UI shows placeholder).
+ */
+export async function getTrackArtworkUrl(pathOrUri: string): Promise<string | null> {
+  try {
+    const cachedPath = await commands.getTrackArtwork(pathOrUri);
+    if (!cachedPath) return null;
+    try {
+      return convertFileSrc(cachedPath);
+    } catch {
+      return null;
+    }
+  } catch (err) {
+    console.warn("getTrackArtwork failed:", err);
+    return null;
+  }
+}
+
 export async function deleteAudioTrack(pathOrUri: string): Promise<void> {
   const res = await commands.deleteAudioTrack(pathOrUri);
   if (res.status === "error") {
@@ -310,6 +338,15 @@ export async function androidPlayerSetSpeed(speed: number): Promise<string> {
 export async function androidPlayerSetVolume(volume01: number): Promise<string> {
   const clamped = Math.max(0, Math.min(1, volume01));
   const res = await commands.androidPlayerSetVolume(clamped);
+  if (res.status === "error") {
+    throw new Error(formatAppError(res.error));
+  }
+  return res.data;
+}
+
+export async function androidPlayerSetBoosterGain(gainDb: number): Promise<string> {
+  const clamped = Math.max(0, Math.min(12, gainDb));
+  const res = await commands.androidPlayerSetBoosterGain(clamped);
   if (res.status === "error") {
     throw new Error(formatAppError(res.error));
   }

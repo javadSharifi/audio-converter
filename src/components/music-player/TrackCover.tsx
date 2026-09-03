@@ -1,7 +1,11 @@
 import { useEffect, useState } from "react";
-import { convertFileSrc } from "@tauri-apps/api/core";
 import { Music2, Disc3 } from "lucide-react";
 import type { AudioTrackInfo } from "../../types";
+import {
+  artworkCacheKey,
+  getSyncArtworkSrc,
+  resolveArtworkSrc,
+} from "../../utils/artwork";
 
 interface TrackCoverProps {
   track: Partial<AudioTrackInfo> & { title?: string | null; name?: string; artist?: string | null; coverUrl?: string | null };
@@ -31,35 +35,38 @@ function getGradientIndex(str: string): number {
 
 export function TrackCover({ track, className = "", size = "md" }: TrackCoverProps): React.JSX.Element {
   const [imgFailed, setImgFailed] = useState(false);
+  const [extractedSrc, setExtractedSrc] = useState<string | null>(null);
   const coverKey = track.id ?? track.coverUrl ?? null;
 
   useEffect(() => {
     setImgFailed(false);
   }, [coverKey]);
 
+  // Lazy embedded-art extraction: covers that can't load directly
+  // (missing coverUrl, or a dead legacy MediaStore albumart content:// URI)
+  // are resolved on demand through the native artwork cache — the same cache
+  // file the media notification uses for its artwork.
+  const artKey = `${artworkCacheKey(track)}|${track.coverUrl ?? ""}`;
+  useEffect(() => {
+    let cancelled = false;
+    setExtractedSrc(null);
+    if (getSyncArtworkSrc(track)) return;
+    void resolveArtworkSrc(track).then((src) => {
+      if (!cancelled) setExtractedSrc(src);
+    });
+    return () => {
+      cancelled = true;
+    };
+    // artKey carries every input resolveArtworkSrc depends on.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [artKey]);
+
   const identifier = (track.title || track.name || track.id || "track").trim();
   const paletteIndex = getGradientIndex(identifier + (track.artist || ""));
   const gradient = GRADIENT_PALETTES[paletteIndex];
 
-  // Resolve cover URL (handles local path conversion for Tauri webview asset protocol)
-  let resolvedSrc: string | null = null;
-  if (track.coverUrl && !imgFailed) {
-    if (
-      track.coverUrl.startsWith("http://") ||
-      track.coverUrl.startsWith("https://") ||
-      track.coverUrl.startsWith("content://") ||
-      track.coverUrl.startsWith("asset://") ||
-      track.coverUrl.startsWith("data:")
-    ) {
-      resolvedSrc = track.coverUrl;
-    } else {
-      try {
-        resolvedSrc = convertFileSrc(track.coverUrl);
-      } catch {
-        resolvedSrc = track.coverUrl;
-      }
-    }
-  }
+  // Directly loadable cover wins; otherwise the lazily extracted one.
+  const resolvedSrc = !imgFailed ? (getSyncArtworkSrc(track) ?? extractedSrc) : null;
 
   const dimensions =
     size === "sm"

@@ -39,6 +39,13 @@ class PlaybackService : MediaSessionService() {
   private var mediaSession: MediaSession? = null
   private var player: ExoPlayer? = null
 
+  // Real-time loudness boost (Namida pattern): Android LoudnessEnhancer bound
+  // to the ExoPlayer audio session. ExoPlayer.volume caps at 1.0, so anything
+  // above 100% rides this effect instead of being silently clamped.
+  private var loudnessEnhancer: android.media.audiofx.LoudnessEnhancer? = null
+  private var boosterGainDb: Float = 0f
+  private var boosterUnsupported: Boolean = false
+
   interface PlaybackEventListener {
     fun onPlaybackStateChanged(stateJson: String)
     fun onTrackTransition(trackJson: String)
@@ -111,6 +118,17 @@ class PlaybackService : MediaSessionService() {
           lastErrorCode = error.errorCodeName ?: "PLAYBACK_ERROR"
           lastErrorMessage = error.message
           broadcastStateUpdate()
+        }
+
+        override fun onAudioSessionIdChanged(audioSessionId: Int) {
+          // The output session can change across plays; the enhancer is bound
+          // to a session id, so re-attach (reusing the stored gain) instead
+          // of boosting into a dead session.
+          try {
+            ensureBoosterAttached()
+          } catch (t: Throwable) {
+            Log.w(TAG, "Booster re-attach failed", t)
+          }
         }
       })
 
@@ -230,11 +248,87 @@ class PlaybackService : MediaSessionService() {
     }
     player = null
     pendingPlay = null
+    releaseBooster()
     try {
       super.onDestroy()
     } catch (t: Throwable) {
       Log.e(TAG, "super.onDestroy failed", t)
     }
+  }
+
+  /**
+   * Store the desired boost and (re)attach the effect. Safe to call any time:
+   * before the player exists, before the audio session is assigned, or on an
+   * unsupported device — every one of those is a no-op (with the gain kept
+   * for the next valid session) rather than a crash.
+   */
+  private fun applyBoosterGain(gainDb: Float) {
+    boosterGainDb = gainDb.coerceIn(0f, MAX_BOOSTER_GAIN_DB)
+    ensureBoosterAttached()
+  }
+
+  private fun ensureBoosterAttached() {
+    if (boosterUnsupported) return
+    // No boost wanted and no effect allocated: don't grab an audio effect
+    // for nothing (disabling an existing one still goes through below).
+    if (boosterGainDb <= 0.01f && loudnessEnhancer == null) return
+    val pl = player ?: return
+    val sessionId = try {
+      pl.audioSessionId
+    } catch (_: Throwable) {
+      return
+    }
+    // Session not assigned yet (player fresh / nothing prepared): the
+    // onAudioSessionIdChanged callback retries once it becomes valid.
+    if (sessionId == 0 || sessionId == android.media.AudioManager.ERROR) return
+    val current = loudnessEnhancer
+    if (current != null) {
+      val boundSession = try {
+        current.audioSessionId
+      } catch (_: Throwable) {
+        -1
+      }
+      if (boundSession == sessionId) {
+        applyBoosterTarget(current)
+        return
+      }
+      try {
+        current.release()
+      } catch (_: Throwable) {}
+      loudnessEnhancer = null
+    }
+    try {
+      val enhancer = android.media.audiofx.LoudnessEnhancer(sessionId)
+      loudnessEnhancer = enhancer
+      applyBoosterTarget(enhancer)
+    } catch (t: Throwable) {
+      // Device has no LoudnessEnhancer for this session: stay quiet and keep
+      // plain volume behavior instead of crashing playback.
+      Log.w(TAG, "LoudnessEnhancer not supported on this device", t)
+      boosterUnsupported = true
+      loudnessEnhancer = null
+    }
+  }
+
+  private fun applyBoosterTarget(enhancer: android.media.audiofx.LoudnessEnhancer) {
+    try {
+      // Frontend sends dB; the effect takes millibels (Namida mapping).
+      enhancer.setTargetGain(Math.round(boosterGainDb * 100f))
+      enhancer.enabled = boosterGainDb > 0.01f
+    } catch (t: Throwable) {
+      // Out-of-range gain on strict OEMs: fall back to unboosted output.
+      Log.w(TAG, "setTargetGain failed, disabling booster", t)
+      try {
+        enhancer.enabled = false
+      } catch (_: Throwable) {}
+    }
+  }
+
+  private fun releaseBooster() {
+    try {
+      loudnessEnhancer?.release()
+    } catch (_: Throwable) {}
+    loudnessEnhancer = null
   }
 
   private fun broadcastStateUpdate() {
@@ -404,6 +498,9 @@ class PlaybackService : MediaSessionService() {
     private const val TAG = "PlaybackService"
     private const val NOTIFICATION_ID = 1001
     private const val CHANNEL_ID = "RhythmMediaPlayback"
+    // 400% UI boost ~= +12 dB (20*log10(4)). Defensive ceiling: strict OEMs
+    // throw on larger target gains, and applyBoosterTarget degrades to off.
+    private const val MAX_BOOSTER_GAIN_DB = 12f
 
     @Volatile
     var instance: PlaybackService? = null
@@ -465,7 +562,11 @@ class PlaybackService : MediaSessionService() {
 
     private fun buildMediaItem(trackObj: JSONObject): MediaItem {
       val id = trackObj.optString("id", "")
-      var uriStr = trackObj.optString("uri", "")
+      // Raw uri BEFORE the file:// fallback below: the artwork cache key must
+      // use the exact same string the frontend sent to getEmbeddedArtwork
+      // (track.uri || track.path), otherwise the exists() check always misses.
+      val rawUri = trackObj.optString("uri", "")
+      var uriStr = rawUri
       val path = trackObj.optString("path", "")
       val title = trackObj.optString("title", trackObj.optString("name", "Unknown Title"))
       val artist = trackObj.optString("artist", "Unknown Artist")
@@ -485,7 +586,22 @@ class PlaybackService : MediaSessionService() {
         .setAlbumTitle(album)
         .setDisplayTitle(title)
 
-      if (coverUrl.isNotBlank()) {
+      // Prefer the embedded-artwork cache file (populated lazily by
+      // MainActivity.getEmbeddedArtwork): a readable file:// entry always
+      // loads in the notification/lock-screen player, while the legacy
+      // MediaStore `albumart` content URI is often dead on Android 10+.
+      // Purely a fast exists() check — no extraction on the playback path.
+      var artworkSet = false
+      try {
+        val cacheKey = rawUri.ifBlank { path }.ifBlank { id }
+        val cached = MainActivity.artworkCacheFileFor(cacheKey)
+        if (cached != null && cached.exists() && cached.length() > 0) {
+          metadataBuilder.setArtworkUri(Uri.fromFile(cached))
+          artworkSet = true
+        }
+      } catch (_: Throwable) {}
+
+      if (!artworkSet && coverUrl.isNotBlank()) {
         try {
           metadataBuilder.setArtworkUri(Uri.parse(coverUrl))
         } catch (_: Throwable) {}
@@ -660,11 +776,17 @@ class PlaybackService : MediaSessionService() {
     fun setVolume(context: Context, volume: Float): String {
       return runOnService { service ->
         // 0.0..1.0 device-volume fraction for the ExoPlayer instance.
-        // Values >1 (true boost/DSP) are intentionally NOT faked here:
-        // ExoPlayer.volume above 1 clips, Rhythm solves this with an
-        // AudioProcessor. The React booster maps 0-100% here and caps
-        // >100% at 1.0 until a native DSP path exists.
+        // True boost above 100% rides the LoudnessEnhancer (setBoosterGain),
+        // never this fraction.
         service.player?.volume = volume.coerceIn(0f, 1f)
+        "OK"
+      }
+    }
+
+    @JvmStatic
+    fun setBoosterGain(context: Context, gainDb: Float): String {
+      return runOnService { service ->
+        service.applyBoosterGain(gainDb)
         "OK"
       }
     }

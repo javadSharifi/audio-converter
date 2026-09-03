@@ -128,8 +128,9 @@ export default function App(): React.JSX.Element {
 
   // Android hardware back: sheets/tabs/fullscreen are consumed by deeper
   // views first (see androidBack helpers). Here we handle: dismiss permission
-  // modal → exit selection → player back to converter (home) → double-press
-  // to exit with a toast on first press.
+  // modal → exit selection → double-press to exit with a toast on first
+  // press. The music player is a top-level destination like the converter:
+  // back never navigates player → converter.
   const lastBackPress = useRef(0);
   const permOpenRef = useRef(false);
   permOpenRef.current = permOpen;
@@ -155,10 +156,8 @@ export default function App(): React.JSX.Element {
         musicState.setFullscreenOpen(false);
         return;
       }
-      if (appState.activeTool === "player") {
-        appState.setActiveTool("converter");
-        return;
-      }
+      // No player → converter navigation: music and converter are both
+      // top-level destinations sharing the same double-press-to-exit flow.
 
       const now = Date.now();
       if (now - lastBackPress.current < 2000) {

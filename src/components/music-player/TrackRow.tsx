@@ -1,9 +1,11 @@
-import { memo, useState, useRef } from "react";
+import { memo, useEffect, useState, useRef } from "react";
 import { useAppStore } from "../../stores/useAppStore";
 import { useMusicPlayerStore, isTrackLiked } from "../../stores/useMusicPlayerStore";
 import { translate } from "../../i18n";
 import { TrackCover } from "./TrackCover";
 import { TrackOptionsSheet } from "./TrackOptionsSheet";
+import { ANDROID_BACK_EVENT, markBackConsumed, wasBackConsumed } from "../../utils/androidBack";
+import { isAndroid } from "../../utils/platform";
 import { Heart, Play, Pause, MoreVertical, Check, Square } from "lucide-react";
 import type { AudioTrackInfo } from "../../types";
 
@@ -27,6 +29,24 @@ export const TrackRow = memo(function TrackRow({ track, playlist }: TrackRowProp
   const toggleSelectTrack = useMusicPlayerStore((s) => s.toggleSelectTrack);
 
   const [optionsOpen, setOptionsOpen] = useState(false);
+  const optionsOpenRef = useRef(false);
+  optionsOpenRef.current = optionsOpen;
+
+  // Android back: close this row's options sheet first. Without this, a press
+  // made while the sheet is open (outside fullscreen, where NowPlayingView
+  // does not cover it) would leak through to the app-level handler and start
+  // navigation/exit behind the open sheet.
+  useEffect(() => {
+    if (!isAndroid()) return;
+    const onBack = () => {
+      if (wasBackConsumed()) return;
+      if (!optionsOpenRef.current) return;
+      setOptionsOpen(false);
+      markBackConsumed();
+    };
+    window.addEventListener(ANDROID_BACK_EVENT, onBack as EventListener);
+    return () => window.removeEventListener(ANDROID_BACK_EVENT, onBack as EventListener);
+  }, []);
 
   const trackKey = track.uri || track.path || track.id;
   const isSelected =

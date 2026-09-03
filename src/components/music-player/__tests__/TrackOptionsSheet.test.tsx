@@ -1,10 +1,17 @@
 // @vitest-environment jsdom
-import { beforeEach, describe, expect, it } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { useMusicPlayerStore } from "../../../stores/useMusicPlayerStore";
 import { useAppStore } from "../../../stores/useAppStore";
 import { TrackRow } from "../TrackRow";
+import { ANDROID_BACK_EVENT } from "../../../utils/androidBack";
+import * as platformApi from "../../../utils/platform";
 import type { AudioTrackInfo } from "../../../types";
+
+vi.mock("../../../utils/platform", async (importOriginal) => {
+  const actual = await importOriginal<typeof platformApi>();
+  return { ...actual, isAndroid: vi.fn(() => true) };
+});
 
 const mockTrack: AudioTrackInfo = {
   id: "track_test_1",
@@ -88,5 +95,41 @@ describe("TrackRow 3-Dots Options Sheet & Details Modal", () => {
     fireEvent.click(cancelBtn);
 
     expect(screen.queryByText(/Delete this song\?/i)).toBeNull();
+  });
+
+  it("shows an error toast when sharing fails instead of failing silently", async () => {
+    const originalShare = useMusicPlayerStore.getState().shareTrack;
+    useMusicPlayerStore.setState({
+      shareTrack: async () => {
+        throw new Error("Cannot read this audio file");
+      },
+    });
+    try {
+      render(<TrackRow track={mockTrack} />);
+
+      fireEvent.click(screen.getByRole("button", { name: /More options/i }));
+      fireEvent.click(screen.getByText(/Share Song/i));
+
+      await vi.waitFor(() => {
+        expect(
+          useAppStore.getState().toasts.some((t) => t.text === "shareFailed")
+        ).toBe(true);
+      });
+    } finally {
+      useMusicPlayerStore.setState({ shareTrack: originalShare });
+    }
+  });
+
+  it("closes the row options sheet on Android back instead of leaking the press", () => {
+    render(<TrackRow track={mockTrack} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /More options/i }));
+    expect(screen.getByText(/Share Song/i)).toBeTruthy();
+
+    act(() => {
+      window.dispatchEvent(new CustomEvent(ANDROID_BACK_EVENT));
+    });
+
+    expect(screen.queryByText(/Share Song/i)).toBeNull();
   });
 });

@@ -365,8 +365,14 @@ export function NowPlayingView(): React.JSX.Element | null {
 
           {/* =============================================================== */}
           {/* 6. HALO PLAYBACK CONTROLS (Prev / Halo Play / Next)              */}
+          {/* Transport buttons stay LTR in every language (Namida pattern):  */}
+          {/* in RTL the flex order would otherwise swap prev/next visually.  */}
           {/* =============================================================== */}
-          <div className="relative z-10 flex items-center justify-center gap-6 sm:gap-8 pt-2 pb-4 shrink-0 overflow-visible">
+          <div
+            dir="ltr"
+            data-testid="transport-controls"
+            className="relative z-10 flex items-center justify-center gap-6 sm:gap-8 pt-2 pb-4 shrink-0 overflow-visible"
+          >
             {/* Previous Track */}
             <button
               type="button"

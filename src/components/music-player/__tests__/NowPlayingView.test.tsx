@@ -119,6 +119,14 @@ describe("MiniPlayer Component", () => {
     fireEvent.click(prevBtn);
     fireEvent.click(nextBtn);
   });
+
+  it("keeps mini transport controls LTR even in fa (RTL) mode", () => {
+    useAppStore.setState({ lang: "fa" });
+    render(<MiniPlayer />);
+
+    const transport = screen.getByTestId("mini-transport-controls");
+    expect(transport.getAttribute("dir")).toBe("ltr");
+  });
 });
 
 describe("NowPlayingView Fullscreen Player", () => {
@@ -194,6 +202,18 @@ describe("NowPlayingView Fullscreen Player", () => {
     const shuffleBtn = screen.getByTitle(/Shuffle Off/i);
     fireEvent.click(shuffleBtn);
     expect(useMusicPlayerStore.getState().shuffleMode).toBe(true);
+  });
+
+  it("keeps fullscreen transport controls LTR even in fa (RTL) mode", () => {
+    useAppStore.setState({ lang: "fa" });
+    useMusicPlayerStore.setState({ fullscreenOpen: true });
+    render(<NowPlayingView />);
+
+    const transport = screen.getByTestId("transport-controls");
+    expect(transport.getAttribute("dir")).toBe("ltr");
+    // Both buttons still exist with correct actions
+    expect(screen.getByTitle("آهنگ قبلی")).toBeTruthy();
+    expect(screen.getByTitle("آهنگ بعدی")).toBeTruthy();
   });
 
   it("opens Queue drawer and collapses player", () => {

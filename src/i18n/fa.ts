@@ -110,6 +110,9 @@ export const fa: Record<TranslationKey, string> = {
   permGoSettings: "رفتن به تنظیمات",
   permGrantNow: "همین حالا مجوز می‌دهم",
   permLater: "بعداً",
+  notifBannerTitle: "کنترل از نوار بالا خاموش است",
+  notifBannerDesc:
+    "برای توقف و عوض‌کردن آهنگ از نوار بالای گوشی و صفحه قفل، اعلان‌های برنامه را فعال کنید.",
 
   // Sound Booster & Tabs
   tabConverter: "مبدل فرمت",
@@ -241,6 +244,7 @@ export const fa: Record<TranslationKey, string> = {
   ringtoneMobileOnly: "این قابلیت مختص گوشی موبایل است",
   trackDetails: "جزییات آهنگ",
   shareSong: "اشتراک‌گذاری آهنگ",
+  shareFailed: "اشتراک‌گذاری این آهنگ ممکن نشد.",
   copiedToClipboard: "در حافظه کپی شد",
   openFileLocation: "نمایش در پوشه",
   trackPath: "مسیر فایل / آدرس",

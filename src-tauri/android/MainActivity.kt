@@ -632,6 +632,87 @@ class MainActivity : TauriActivity() {
       return results.joinToString("\n")
     }
 
+    /**
+     * Stable cache file for a track's embedded artwork (Namida-style artwork
+     * cache: one JPEG per track under `cacheDir/artworks/`). The same naming
+     * is used by PlaybackService for notification art, so a cover resolved
+     * once (list UI) is reused by the media notification for free.
+     */
+    fun artworkCacheFileFor(cacheKey: String): java.io.File? {
+      try {
+        if (cacheKey.isBlank()) return null
+        val context = appContext ?: instance?.applicationContext ?: return null
+        val dir = java.io.File(context.cacheDir, "artworks")
+        if (!dir.exists()) dir.mkdirs()
+        // kotlin.String.hashCode is stable across runs for the same content.
+        val name = "art_" + Math.abs(cacheKey.hashCode()).toString() + ".jpg"
+        return java.io.File(dir, name)
+      } catch (_: Throwable) {
+        return null
+      }
+    }
+
+    /**
+     * Extract the embedded picture (ID3/APIC, Vorbis, MP4 covr, ...) of one
+     * audio file and cache it as JPEG. `audioRef` is the track uri
+     * (`content://...`) or a plain/`file://` path — never an artwork URI.
+     * Returns the absolute cached file path, or "" when there is no embedded
+     * art. Never throws over JNI. Single-String-arg on purpose so the
+     * existing Rust `call_static_string_quiet` bridge can call it directly.
+     */
+    @JvmStatic
+    fun getEmbeddedArtwork(audioRef: String): String {
+      try {
+        if (audioRef.isBlank()) return ""
+        val out = artworkCacheFileFor(audioRef) ?: return ""
+        if (out.exists() && out.length() > 0) return out.absolutePath
+        val context = appContext ?: instance?.applicationContext ?: return ""
+        val retriever = android.media.MediaMetadataRetriever()
+        try {
+          if (audioRef.startsWith("content://")) {
+            retriever.setDataSource(context, Uri.parse(audioRef))
+          } else {
+            val rawPath = if (audioRef.startsWith("file://")) {
+              Uri.parse(audioRef).path ?: audioRef
+            } else {
+              audioRef
+            }
+            if (rawPath.isBlank()) return ""
+            retriever.setDataSource(rawPath)
+          }
+          val bytes = retriever.embeddedPicture ?: return ""
+          if (bytes.isEmpty()) return ""
+          java.io.FileOutputStream(out).use { it.write(bytes) }
+        } finally {
+          try {
+            retriever.release()
+          } catch (_: Throwable) {}
+        }
+        return if (out.exists() && out.length() > 0) out.absolutePath else ""
+      } catch (t: Throwable) {
+        Log.w(TAG, "getEmbeddedArtwork failed", t)
+        return ""
+      }
+    }
+
+    /**
+     * Whether system notifications are currently allowed for this app
+     * (Android 13+ runtime `POST_NOTIFICATIONS`). The media notification —
+     * and with it the lock-screen player — silently disappears when this is
+     * denied, while in-app playback keeps working, so the frontend shows a
+     * guidance banner instead of a broken-looking player.
+     */
+    @JvmStatic
+    fun areNotificationsEnabled(): Boolean {
+      try {
+        val context = appContext ?: instance?.applicationContext ?: return true
+        return androidx.core.app.NotificationManagerCompat.from(context)
+          .areNotificationsEnabled()
+      } catch (_: Throwable) {
+        return true
+      }
+    }
+
     @JvmStatic
     fun checkMusicPermission(): String {
       val context = appContext ?: instance?.applicationContext ?: return "granted"
@@ -897,6 +978,12 @@ class MainActivity : TauriActivity() {
     @JvmStatic
     fun deleteAudioTrack(uriString: String): String {
       val context = appContext ?: instance?.applicationContext ?: return "Context unavailable"
+      // Drop the cached embedded artwork too: the same uri key could later be
+      // reused by MediaStore for a different file, which would otherwise
+      // inherit the deleted track's cover (in lists and notifications).
+      try {
+        artworkCacheFileFor(uriString)?.delete()
+      } catch (_: Throwable) {}
       return try {
         val resolver = instance?.contentResolver ?: context.contentResolver
         if (uriString.startsWith("content://")) {
@@ -952,6 +1039,173 @@ class MainActivity : TauriActivity() {
       } catch (e: Throwable) {
         Log.e(TAG, "Failed to set as ringtone: $uriString", e)
         e.message ?: "Unknown error"
+      }
+    }
+
+    /**
+     * Share one audio track via the system sheet. Single-String-arg overload
+     * for the Rust `call_static_string_quiet` bridge: `jsonArgs` is either
+     * `{"uri":..,"title":..,"mimeType":..}` (what Rust sends) or a bare uri
+     * (the retry fallback). The audio is staged into our cache and served
+     * through our FileProvider — raw URIs are never handed out: file://
+     * crashes on API 24+ (FileUriExposedException) and bare content:// grants
+     * are flaky without ClipData + per-package grants (share_plus pattern).
+     * Returns "OK" or an error string. Never throws over JNI.
+     */
+    @JvmStatic
+    fun shareAudioTrack(jsonArgs: String): String {
+      val context = appContext ?: instance?.applicationContext ?: return "Context unavailable"
+      return try {
+        var uriString = jsonArgs
+        var title = "Audio Track"
+        var mimeType = "audio/*"
+        try {
+          val trimmed = jsonArgs.trim()
+          if (trimmed.startsWith("{")) {
+            val obj = org.json.JSONObject(trimmed)
+            uriString = obj.optString("uri", jsonArgs)
+            val t = obj.optString("title", "")
+            if (t.isNotBlank()) title = t
+            val m = obj.optString("mimeType", "")
+            if (m.isNotBlank()) mimeType = m
+          }
+        } catch (_: Throwable) {}
+        if (uriString.isBlank()) return "Empty track reference"
+        if (uriString.startsWith("http://") || uriString.startsWith("https://")) {
+          return "Streaming tracks cannot be shared"
+        }
+
+        // 1. Display name for the staged copy.
+        val resolver = instance?.contentResolver ?: context.contentResolver
+        var displayName: String? = null
+        if (uriString.startsWith("content://")) {
+          try {
+            resolver.query(
+              Uri.parse(uriString),
+              arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null
+            )?.use { c ->
+              if (c.moveToFirst()) {
+                val ni = c.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                if (ni >= 0) displayName = c.getString(ni)
+              }
+            }
+          } catch (_: Throwable) {}
+        } else {
+          val raw = if (uriString.startsWith("file://")) Uri.parse(uriString).path else uriString
+          if (!raw.isNullOrBlank()) displayName = java.io.File(raw).name.takeIf { it.isNotBlank() }
+        }
+        if (displayName.isNullOrBlank()) {
+          val ext = android.webkit.MimeTypeMap.getSingleton().getExtensionFromMimeType(mimeType)
+          displayName = "shared_audio" + if (!ext.isNullOrBlank()) ".$ext" else ".mp3"
+        }
+        val safeName = displayName!!.replace(Regex("[\\\\/:*?\"<>|\\x00-\\x1F]"), "_")
+
+        // 2. Stage into our own cache so FileProvider can serve it.
+        val shareDir = java.io.File(context.cacheDir, "share_tmp")
+        try {
+          if (shareDir.exists()) {
+            shareDir.listFiles()?.forEach {
+              try {
+                it.delete()
+              } catch (_: Throwable) {}
+            }
+          } else {
+            shareDir.mkdirs()
+          }
+        } catch (_: Throwable) {}
+        val destFile = java.io.File(shareDir, safeName)
+        val inputStream = try {
+          if (uriString.startsWith("content://")) {
+            resolver.openInputStream(Uri.parse(uriString))
+          } else {
+            val raw = if (uriString.startsWith("file://")) Uri.parse(uriString).path ?: uriString else uriString
+            java.io.FileInputStream(java.io.File(raw))
+          }
+        } catch (t: Throwable) {
+          Log.w(TAG, "shareAudioTrack: cannot open source", t)
+          null
+        } ?: return "Cannot read this audio file"
+        try {
+          inputStream.use { input ->
+            java.io.FileOutputStream(destFile).use { output ->
+              val buffer = ByteArray(BUFFER_SIZE)
+              var n: Int
+              while (input.read(buffer).also { n = it } != -1) output.write(buffer, 0, n)
+              output.flush()
+            }
+          }
+        } catch (t: Throwable) {
+          Log.w(TAG, "shareAudioTrack: staging failed", t)
+          try {
+            destFile.delete()
+          } catch (_: Throwable) {}
+          return "Cannot read this audio file"
+        }
+        if (!destFile.exists() || destFile.length() <= 0) {
+          try {
+            destFile.delete()
+          } catch (_: Throwable) {}
+          return "Cannot read this audio file"
+        }
+
+        // 3. Serve via FileProvider with explicit grants.
+        val contentUri = try {
+          androidx.core.content.FileProvider.getUriForFile(
+            context, context.packageName + ".fileprovider", destFile
+          )
+        } catch (t: Throwable) {
+          Log.w(TAG, "shareAudioTrack: FileProvider failed", t)
+          try {
+            destFile.delete()
+          } catch (_: Throwable) {}
+          return "Cannot prepare file for sharing"
+        }
+        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+          type = mimeType
+          putExtra(Intent.EXTRA_STREAM, contentUri)
+          putExtra(Intent.EXTRA_SUBJECT, title)
+          clipData = android.content.ClipData.newUri(context.contentResolver, title, contentUri)
+          addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+          addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        // Per-package grants: the chooser target resolves later, so grant to
+        // every candidate (share_plus does the same loop).
+        try {
+          val candidates =
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+              context.packageManager.queryIntentActivities(
+                shareIntent,
+                android.content.pm.PackageManager.ResolveInfoFlags.of(
+                  android.content.pm.PackageManager.MATCH_DEFAULT_ONLY.toLong()
+                )
+              )
+            } else {
+              @Suppress("DEPRECATION")
+              context.packageManager.queryIntentActivities(
+                shareIntent, android.content.pm.PackageManager.MATCH_DEFAULT_ONLY
+              )
+            }
+          for (info in candidates) {
+            try {
+              context.grantUriPermission(
+                info.activityInfo.packageName, contentUri, Intent.FLAG_GRANT_READ_URI_PERMISSION
+              )
+            } catch (_: Throwable) {}
+          }
+        } catch (_: Throwable) {}
+        val chooser = Intent.createChooser(shareIntent, title).apply {
+          addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        try {
+          context.startActivity(chooser)
+        } catch (t: Throwable) {
+          Log.w(TAG, "shareAudioTrack: no app to share with", t)
+          return "No app available to share with"
+        }
+        "OK"
+      } catch (t: Throwable) {
+        Log.e(TAG, "Failed to share audio track", t)
+        t.message ?: "Unknown error"
       }
     }
 
@@ -1038,6 +1292,12 @@ class MainActivity : TauriActivity() {
     fun nativePlayerSetVolume(volume: Float): String {
       val ctx = appContext ?: instance?.applicationContext ?: return "CONTEXT_NULL"
       return PlaybackService.setVolume(ctx, volume)
+    }
+
+    @JvmStatic
+    fun nativePlayerSetBoosterGain(gainDb: Float): String {
+      val ctx = appContext ?: instance?.applicationContext ?: return "CONTEXT_NULL"
+      return PlaybackService.setBoosterGain(ctx, gainDb)
     }
 
     @JvmStatic

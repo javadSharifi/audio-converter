@@ -35,6 +35,7 @@ import {
 } from "./musicPlayer/audioEngine";
 import { getTrackKey, getTrackAliases, isTrackLiked } from "./musicPlayer/trackUtils";
 import { isAndroid } from "../utils/platform";
+import { evictArtworkCache } from "../utils/artwork";
 
 export { getGlobalAudio, getGlobalGainNode } from "./musicPlayer/audioEngine";
 export {
@@ -547,6 +548,12 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
     const deleteKeySet = new Set(
       tracksToDelete.map((t) => t.uri || t.path || t.id),
     );
+    // Drop cached covers so a later track reusing one of these uris never
+    // inherits the deleted track's artwork (mirrors the native cache evict
+    // in MainActivity.deleteAudioTrack).
+    try {
+      evictArtworkCache(Array.from(deleteKeySet));
+    } catch {}
 
     const current = get().currentTrack;
     if (
@@ -626,6 +633,10 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
     } catch (e) {
       console.warn("Failed to delete track:", targetKey, e);
     }
+    // See deleteMultipleTracks: keep the artwork cache free of stale covers.
+    try {
+      evictArtworkCache([targetKey]);
+    } catch {}
 
     // If currently playing, stop playback
     const current = get().currentTrack;
@@ -676,8 +687,10 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
     const title = track.title || track.name;
     const mime = track.mimeType || "audio/mpeg";
 
-    // Try web navigator.share on platforms that support it
-    if (typeof navigator !== "undefined" && navigator.share) {
+    // The Android WebView exposes navigator.share, but only for title/text —
+    // sharing without the audio file looks broken. Always use the native
+    // FileProvider share there; the web path stays for desktop browsers.
+    if (!isAndroid() && typeof navigator !== "undefined" && navigator.share) {
       try {
         await navigator.share({
           title,

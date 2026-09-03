@@ -752,6 +752,20 @@ pub async fn android_player_set_volume(volume: f64) -> Result<String> {
     .map_err(|e| AppError::Other(format!("Task failed: {e}")))?
 }
 
+/// Set real-time loudness boost in dB (0 is off) via the native Android
+/// LoudnessEnhancer attached to the ExoPlayer audio session. Desktop needs
+/// no loudness DSP path (the WebAudio GainNode covers it).
+#[tauri::command]
+#[specta::specta]
+pub async fn android_player_set_booster_gain(gain_db: f64) -> Result<String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::android_fs::call_player_set_booster_gain_jni(gain_db as f32)
+            .map_err(|e| AppError::Other(e))
+    })
+    .await
+    .map_err(|e| AppError::Other(format!("Task failed: {e}")))?
+}
+
 /// Stop playback via native Jetpack Media3.
 #[tauri::command]
 #[specta::specta]
@@ -797,6 +811,32 @@ pub async fn resolve_audio_track(path_or_uri: String) -> Result<crate::music_lib
     })
     .await
     .map_err(|e| AppError::Other(format!("Task failed: {e}")))?
+}
+
+/// Lazily resolve one track cover art to a readable cached JPEG path.
+/// Takes the audio reference (track uri or path, never an artwork URI).
+/// Repeat calls are a near-free cache hit. Returns null when the file has
+/// no embedded picture.
+#[tauri::command]
+#[specta::specta]
+pub async fn get_track_artwork(path_or_uri: String) -> Option<String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::music_library::artwork::get_track_artwork(&path_or_uri)
+    })
+    .await
+    .unwrap_or_default()
+}
+
+/// Whether system notifications are allowed for this app.
+/// Always true on desktop. The media notification and lock-screen player
+/// disappear when this is denied, so the UI shows a guidance banner.
+#[tauri::command]
+#[specta::specta]
+pub fn get_notification_permission_status() -> bool {
+    #[cfg(target_os = "android")]
+    return crate::android_fs::call_static_bool("areNotificationsEnabled");
+    #[cfg(not(target_os = "android"))]
+    true
 }
 
 /// Exit the app (used for Android double-back-to-exit).

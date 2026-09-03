@@ -88,16 +88,34 @@ export function getGlobalGainNode(): GainNode | null {
   return node;
 }
 
+/**
+ * Convert a 0-400% boost level to a LoudnessEnhancer target gain in dB.
+ * 100% (and anything below) is 0 dB — plain volume covers that range;
+ * 200% ~= +6 dB, 400% ~= +12 dB. Pure so it stays unit-testable.
+ */
+export function boosterDbForPercent(percent: number): number {
+  const fraction = Math.max(1, Math.min(4, percent / 100));
+  if (fraction <= 1) return 0;
+  return 20 * Math.log10(fraction);
+}
+
 /** Apply a 0-400% boost level to the live graph (with volume fallback). */
 export function applyGainPercent(percent: number): void {
   const clamped = Math.max(0, Math.min(400, percent));
   if (isAndroid()) {
-    // Route 0-100% to the native ExoPlayer volume so the slider stays
-    // functional; >100% needs a native DSP AudioProcessor (Rhythm's
-    // RhythmBassBoostProcessor/ReplayGain pattern) and is capped at 1.0
-    // rather than faked. Fire-and-forget: the state poll is authoritative.
+    // 0-100% rides the native ExoPlayer volume fraction; >100% rides the
+    // native LoudnessEnhancer bound to the ExoPlayer audio session (Namida
+    // pattern: targetGain dB, millibels on the native side). Disabling the
+    // enhancer at <=100% keeps it free when no boost is wanted.
+    // Fire-and-forget: the state poll is authoritative.
     try {
-      void api.androidPlayerSetVolume(Math.max(0, Math.min(1, clamped / 100))).catch(() => {});
+      if (clamped > 100) {
+        void api.androidPlayerSetVolume(1).catch(() => {});
+        void api.androidPlayerSetBoosterGain(boosterDbForPercent(clamped)).catch(() => {});
+      } else {
+        void api.androidPlayerSetBoosterGain(0).catch(() => {});
+        void api.androidPlayerSetVolume(Math.max(0, Math.min(1, clamped / 100))).catch(() => {});
+      }
     } catch {}
     return;
   }

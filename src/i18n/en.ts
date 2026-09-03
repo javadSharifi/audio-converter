@@ -107,6 +107,9 @@ export const en = {
   permGoSettings: "Open Settings",
   permGrantNow: "Grant now",
   permLater: "Later",
+  notifBannerTitle: "Background controls are off",
+  notifBannerDesc:
+    "Allow notifications to pause, skip tracks from the top bar and lock screen while music plays.",
 
   // Sound Booster & Tabs
   tabConverter: "Converter",
@@ -238,6 +241,7 @@ export const en = {
   ringtoneMobileOnly: "Available on mobile devices",
   trackDetails: "Track Details",
   shareSong: "Share Song",
+  shareFailed: "Could not share this track.",
   copiedToClipboard: "Copied to clipboard",
   openFileLocation: "Show in Folder",
   trackPath: "File Path / URI",

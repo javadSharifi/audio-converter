@@ -10,6 +10,8 @@ import {
   unifiedSetSpeed,
   unifiedStop,
   resolveAudioSource,
+  applyGainPercent,
+  boosterDbForPercent,
 } from "../audioEngine";
 import * as api from "../../../utils/tauri";
 import * as platform from "../../../utils/platform";
@@ -26,6 +28,7 @@ vi.mock("../../../utils/tauri", () => ({
   androidPlayerSetShuffleMode: vi.fn(async () => "OK"),
   androidPlayerSetSpeed: vi.fn(async () => "OK"),
   androidPlayerSetVolume: vi.fn(async () => "OK"),
+  androidPlayerSetBoosterGain: vi.fn(async () => "OK"),
   androidPlayerStop: vi.fn(async () => "OK"),
   androidPlayerGetState: vi.fn(async () => ({
     isPlaying: true,
@@ -106,6 +109,38 @@ describe("Unified Audio Engine (Cross-Platform & Media3)", () => {
 
       await unifiedStop();
       expect(api.androidPlayerStop).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("Android Sound Booster routing", () => {
+    beforeEach(() => {
+      vi.spyOn(platform, "isAndroid").mockReturnValue(true);
+    });
+
+    it("maps boost percent to LoudnessEnhancer dB", () => {
+      expect(boosterDbForPercent(0)).toBe(0);
+      expect(boosterDbForPercent(50)).toBe(0);
+      expect(boosterDbForPercent(100)).toBe(0);
+      expect(boosterDbForPercent(200)).toBeCloseTo(6.02, 2);
+      expect(boosterDbForPercent(400)).toBeCloseTo(12.04, 2);
+      expect(boosterDbForPercent(999)).toBeCloseTo(12.04, 2);
+    });
+
+    it("routes <=100% to volume and disables the enhancer", async () => {
+      applyGainPercent(80);
+      await Promise.resolve();
+
+      expect(api.androidPlayerSetVolume).toHaveBeenCalledWith(0.8);
+      expect(api.androidPlayerSetBoosterGain).toHaveBeenCalledWith(0);
+    });
+
+    it("routes >100% to full volume plus enhancer dB", async () => {
+      applyGainPercent(200);
+      await Promise.resolve();
+
+      expect(api.androidPlayerSetVolume).toHaveBeenCalledWith(1);
+      const gainDb = vi.mocked(api.androidPlayerSetBoosterGain).mock.calls[0][0];
+      expect(gainDb).toBeCloseTo(6.02, 2);
     });
   });
 

@@ -102,6 +102,12 @@ export const commands = {
 	 *  AudioProcessor (Rhythm pattern) and is intentionally not faked.
 	 */
 	androidPlayerSetVolume: (volume: number | null) => typedError<string, AppError>(__TAURI_INVOKE("android_player_set_volume", { volume })),
+	/**
+	 *  Set real-time loudness boost in dB (0 is off) via the native Android
+	 *  LoudnessEnhancer attached to the ExoPlayer audio session. Desktop needs
+	 *  no loudness DSP path (the WebAudio GainNode covers it).
+	 */
+	androidPlayerSetBoosterGain: (gainDb: number | null) => typedError<string, AppError>(__TAURI_INVOKE("android_player_set_booster_gain", { gainDb })),
 	/**  Stop playback via native Jetpack Media3. */
 	androidPlayerStop: () => typedError<string, AppError>(__TAURI_INVOKE("android_player_stop")),
 	/**  Query live playback state from native Jetpack Media3. */
@@ -110,6 +116,19 @@ export const commands = {
 	getPendingOpenFiles: () => typedError<string[], AppError>(__TAURI_INVOKE("get_pending_open_files")),
 	/**  Resolve a single audio file path or content:// URI into an AudioTrackInfo struct. */
 	resolveAudioTrack: (pathOrUri: string) => typedError<AudioTrackInfo, AppError>(__TAURI_INVOKE("resolve_audio_track", { pathOrUri })),
+	/**
+	 *  Lazily resolve one track cover art to a readable cached JPEG path.
+	 *  Takes the audio reference (track uri or path, never an artwork URI).
+	 *  Repeat calls are a near-free cache hit. Returns null when the file has
+	 *  no embedded picture.
+	 */
+	getTrackArtwork: (pathOrUri: string) => __TAURI_INVOKE<string | null>("get_track_artwork", { pathOrUri }),
+	/**
+	 *  Whether system notifications are allowed for this app.
+	 *  Always true on desktop. The media notification and lock-screen player
+	 *  disappear when this is denied, so the UI shows a guidance banner.
+	 */
+	getNotificationPermissionStatus: () => __TAURI_INVOKE<boolean>("get_notification_permission_status"),
 	/**
 	 *  Exit the app (used for Android double-back-to-exit).
 	 *  On desktop this terminates via Tauri; on Android the Kotlin

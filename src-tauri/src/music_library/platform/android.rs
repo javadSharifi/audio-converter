@@ -2,7 +2,19 @@ use crate::music_library::models::{AudioTrackInfo, LibraryPermissionStatus};
 
 #[cfg(target_os = "android")]
 pub fn get_permission_status() -> LibraryPermissionStatus {
-    let res = crate::android_fs::call_static_string_quiet("checkMusicPermission", "");
+    // Cold-start race: the JNI bridge (JavaVM/class ref) may not be
+    // registered yet when the UI asks immediately on mount — an empty answer
+    // means "unknown", NOT "denied". Retry briefly before falling back, so a
+    // transient empty bridge never surfaces as a permission warning that
+    // vanishes seconds later once the bridge is up.
+    let mut res = String::new();
+    for _ in 0..4 {
+        res = crate::android_fs::call_static_string_quiet("checkMusicPermission", "");
+        if !res.is_empty() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(150));
+    }
     match res.as_str() {
         "granted" => LibraryPermissionStatus::Granted,
         "permanently_denied" => LibraryPermissionStatus::PermanentlyDenied,

@@ -27,6 +27,7 @@ interface TrackOptionsSheetProps {
 
 export function TrackOptionsSheet({ track, onClose }: TrackOptionsSheetProps): React.JSX.Element {
   const lang = useAppStore((s) => s.lang);
+  const pushToast = useAppStore((s) => s.pushToast);
   const likedPaths = useMusicPlayerStore((s) => s.likedPaths);
   const toggleLike = useMusicPlayerStore((s) => s.toggleLike);
   const deleteTrack = useMusicPlayerStore((s) => s.deleteTrack);
@@ -54,12 +55,20 @@ export function TrackOptionsSheet({ track, onClose }: TrackOptionsSheetProps): R
     }
   };
 
+  const [isSharing, setIsSharing] = useState(false);
+
   const handleShare = async () => {
+    if (isSharing) return;
+    setIsSharing(true);
     try {
       await shareTrack(track);
       onClose();
     } catch (err: unknown) {
       console.warn("Share track failed:", err);
+      // Surface the failure: previously the sheet just stayed open silently.
+      pushToast("error", "shareFailed");
+    } finally {
+      setIsSharing(false);
     }
   };
 
@@ -216,11 +225,12 @@ export function TrackOptionsSheet({ track, onClose }: TrackOptionsSheetProps): R
               </div>
             </button>
 
-            {/* 2. Share Song */}
+            {/* 2. Share Song (disabled while staging/sharing to prevent double sheets) */}
             <button
               type="button"
               onClick={handleShare}
-              className="flex items-center justify-between w-full p-3 rounded-2xl hover:bg-black/[0.04] dark:hover:bg-white/[0.05] transition-colors cursor-pointer group"
+              disabled={isSharing}
+              className="flex items-center justify-between w-full p-3 rounded-2xl hover:bg-black/[0.04] dark:hover:bg-white/[0.05] transition-colors cursor-pointer group disabled:opacity-60 disabled:cursor-wait"
             >
               <div className="flex items-center gap-3">
                 <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-500/10 text-blue-600 dark:bg-blue-500/20 dark:text-blue-400 group-hover:scale-105 transition-transform">

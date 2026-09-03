@@ -3,7 +3,8 @@ import { useAppStore } from "../../stores/useAppStore";
 import { useMusicPlayerStore, filterAndSortTracks, isTrackLiked } from "../../stores/useMusicPlayerStore";
 import { translate } from "../../i18n";
 import type { MusicSortOption } from "../../types";
-import { requestMediaPermissions, openAppSettings } from "../../utils/tauri";
+import { requestMediaPermissions, openAppSettings, hasNotificationPermission } from "../../utils/tauri";
+import { isAndroid } from "../../utils/platform";
 import { TrackRow } from "./TrackRow";
 import { MultiSelectActionBar } from "./MultiSelectActionBar";
 import {
@@ -18,6 +19,7 @@ import {
   Clock,
   ArrowDownAZ,
   ShieldAlert,
+  BellOff,
 } from "lucide-react";
 
 interface SortItem {
@@ -54,6 +56,46 @@ export function TrackListView({ likedOnly = false }: TrackListViewProps): React.
 
   const [sortOpen, setSortOpen] = useState(false);
   const sortRef = useRef<HTMLDivElement>(null);
+  const [notifBlocked, setNotifBlocked] = useState(false);
+  // Dismissal survives tab switches (which remount this view) for the session.
+  const [notifDismissed, setNotifDismissed] = useState(() => {
+    try {
+      return sessionStorage.getItem("ac:notif-banner-dismissed") === "1";
+    } catch {
+      return false;
+    }
+  });
+  const dismissNotifBanner = () => {
+    try {
+      sessionStorage.setItem("ac:notif-banner-dismissed", "1");
+    } catch {}
+    setNotifDismissed(true);
+  };
+
+  // Media notification (top bar + lock-screen controls) silently disappears
+  // when system notifications are denied — while in-app playback keeps
+  // working. Surface a guidance banner instead of a broken-looking player.
+  useEffect(() => {
+    if (!isAndroid()) return;
+    let cancelled = false;
+    const check = () => {
+      void hasNotificationPermission().then((allowed) => {
+        if (!cancelled) setNotifBlocked(!allowed);
+      });
+    };
+    check();
+    const onFocus = () => check();
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") check();
+    };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, []);
 
   // Auto-scan on initial mount if not yet scanned
   useEffect(() => {
@@ -97,8 +139,15 @@ export function TrackListView({ likedOnly = false }: TrackListViewProps): React.
   // Base list depending on mode (all vs liked only)
   const baseTracks = likedOnly ? tracks.filter((t) => isTrackLiked(t, likedPaths)) : tracks;
   const filteredTracks = filterAndSortTracks(baseTracks, searchQuery, sortBy, likedPaths);
+  // Only warn once the outcome is actually known: on cold start the first
+  // permission check can race the native bridge and report a transient
+  // "denied" while the library scan is still running — showing the banner
+  // then flashes it away seconds later. Gate on the finished scan instead.
   const isPermissionDenied =
-    (permissionStatus === "denied" || permissionStatus === "permanentlyDenied") && tracks.length === 0;
+    (permissionStatus === "denied" || permissionStatus === "permanentlyDenied") &&
+    tracks.length === 0 &&
+    hasScanned &&
+    !loading;
 
   return (
     <div className="flex flex-col flex-1 w-full gap-3 min-h-0 overflow-hidden">
@@ -131,6 +180,39 @@ export function TrackListView({ likedOnly = false }: TrackListViewProps): React.
               {translate(lang, "grantPermission")}
             </button>
           )}
+        </div>
+      )}
+
+      {/* Notification Guidance Banner (Android: media notification + lock-screen controls need this) */}
+      {notifBlocked && !notifDismissed && tracks.length > 0 && (
+        <div className="shrink-0 flex items-center justify-between gap-3 p-3 rounded-2xl bg-sky-500/10 border border-sky-500/20 text-sky-900 dark:text-sky-200">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <BellOff className="h-5 w-5 text-sky-600 dark:text-sky-400 shrink-0" />
+            <div className="flex flex-col min-w-0">
+              <span className="text-xs font-bold">{translate(lang, "notifBannerTitle")}</span>
+              <span className="text-[11px] text-zinc-600 dark:text-zinc-400 font-medium">
+                {translate(lang, "notifBannerDesc")}
+              </span>
+            </div>
+          </div>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <button
+              type="button"
+              onClick={handleOpenSettings}
+              className="px-3 py-1.5 rounded-xl bg-sky-600 hover:bg-sky-700 text-white text-[11px] font-bold transition-all cursor-pointer shadow-sm"
+            >
+              {translate(lang, "openSettings")}
+            </button>
+            <button
+              type="button"
+              onClick={dismissNotifBanner}
+              title={translate(lang, "close")}
+              aria-label={translate(lang, "close")}
+              className="flex h-7 w-7 items-center justify-center rounded-full text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-black/5 dark:hover:bg-white/10 transition-colors cursor-pointer"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
         </div>
       )}
 

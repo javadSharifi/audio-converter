@@ -1,3 +1,4 @@
+pub mod artwork;
 pub mod models;
 pub mod platform;
 pub mod scanner;
@@ -140,7 +141,7 @@ pub fn share_audio_track(path_or_uri: &str, title: &str, mime_type: &str) -> Res
     }
 }
 
-fn percent_encoding_decode(input: &str) -> String {
+pub(crate) fn percent_encoding_decode(input: &str) -> String {
     let mut bytes = Vec::new();
     let mut chars = input.bytes();
     while let Some(b) = chars.next() {

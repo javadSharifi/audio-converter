@@ -197,8 +197,13 @@ export function MiniPlayer(): React.JSX.Element | null {
           </div>
         </div>
 
-        {/* Right: Controls (Previous, Play/Pause, Next) + Close Button */}
-        <div className="flex items-center gap-0.5 sm:gap-1 shrink-0">
+        {/* Right: Controls (Previous, Play/Pause, Next) + Close Button.
+            Kept LTR so prev/next never swap places in RTL (fa) mode. */}
+        <div
+          dir="ltr"
+          data-testid="mini-transport-controls"
+          className="flex items-center gap-0.5 sm:gap-1 shrink-0"
+        >
           {/* Previous Track Button */}
           <button
             type="button"

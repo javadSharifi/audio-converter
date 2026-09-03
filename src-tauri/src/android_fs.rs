@@ -562,6 +562,33 @@ pub fn call_player_set_volume_jni(_volume: f32) -> Result<String, String> {
     Ok("OK".to_string())
 }
 
+#[cfg(target_os = "android")]
+pub fn call_player_set_booster_gain_jni(gain_db: f32) -> Result<String, String> {
+    with_jni_env(|env| {
+        let cls = main_activity_class(env)?;
+        let j_val = env
+            .call_static_method(
+                &cls,
+                "nativePlayerSetBoosterGain",
+                "(F)Ljava/lang/String;",
+                &[jni::objects::JValue::Float(gain_db)],
+            )
+            .map_err(|e| format!("Failed to call nativePlayerSetBoosterGain: {e}"))?;
+        let j_obj = j_val.l().map_err(|e| format!("Expected object: {e}"))?;
+        if j_obj.as_raw().is_null() {
+            return Ok("OK".to_string());
+        }
+        let j_str = jni::objects::JString::from(j_obj);
+        let s: String = env.get_string(&j_str).map_err(|e| format!("{e}"))?.into();
+        Ok(s)
+    })
+}
+
+#[cfg(not(target_os = "android"))]
+pub fn call_player_set_booster_gain_jni(_gain_db: f32) -> Result<String, String> {
+    Ok("OK".to_string())
+}
+
 /// Drain any URIs queued during cold start or received before WebView mounted.
 pub fn drain_pending_opened_uris() -> Vec<String> {
     #[cfg(target_os = "android")]
