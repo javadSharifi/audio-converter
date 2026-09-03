@@ -96,7 +96,11 @@ export const commands = {
 	androidPlayerSetShuffleMode: (enabled: boolean) => typedError<string, AppError>(__TAURI_INVOKE("android_player_set_shuffle_mode", { enabled })),
 	/**  Set playback speed (e.g. 1.0, 1.25) via native Jetpack Media3. */
 	androidPlayerSetSpeed: (speed: number | null) => typedError<string, AppError>(__TAURI_INVOKE("android_player_set_speed", { speed })),
-	/**  Set output volume fraction (0.0..1.0) via native Jetpack Media3. */
+	/**
+	 *  Set output volume fraction (0.0..1.0) via native Jetpack Media3.
+	 *  Values above 1.0 are clamped natively; true >100% boost needs a DSP
+	 *  AudioProcessor (Rhythm pattern) and is intentionally not faked.
+	 */
 	androidPlayerSetVolume: (volume: number | null) => typedError<string, AppError>(__TAURI_INVOKE("android_player_set_volume", { volume })),
 	/**  Stop playback via native Jetpack Media3. */
 	androidPlayerStop: () => typedError<string, AppError>(__TAURI_INVOKE("android_player_stop")),
