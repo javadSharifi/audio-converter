@@ -49,6 +49,9 @@ class PlaybackService : MediaSessionService() {
   // onAudioSessionIdChanged callback (there is no readable
   // player.audioSessionId property) — track it here for the enhancer.
   private var currentAudioSessionId: Int = 0
+  // The framework LoudnessEnhancer has no readable session getter either, so
+  // mirror the session it was created for to detect staleness on re-attach.
+  private var boosterSessionId: Int = 0
 
   interface PlaybackEventListener {
     fun onPlaybackStateChanged(stateJson: String)
@@ -284,12 +287,7 @@ class PlaybackService : MediaSessionService() {
     if (sessionId == 0 || sessionId == android.media.AudioManager.ERROR) return
     val current = loudnessEnhancer
     if (current != null) {
-      val boundSession = try {
-        current.audioSessionId
-      } catch (_: Throwable) {
-        -1
-      }
-      if (boundSession == sessionId) {
+      if (boosterSessionId == sessionId) {
         applyBoosterTarget(current)
         return
       }
@@ -301,6 +299,7 @@ class PlaybackService : MediaSessionService() {
     try {
       val enhancer = android.media.audiofx.LoudnessEnhancer(sessionId)
       loudnessEnhancer = enhancer
+      boosterSessionId = sessionId
       applyBoosterTarget(enhancer)
     } catch (t: Throwable) {
       // Device has no LoudnessEnhancer for this session: stay quiet and keep
@@ -330,6 +329,7 @@ class PlaybackService : MediaSessionService() {
       loudnessEnhancer?.release()
     } catch (_: Throwable) {}
     loudnessEnhancer = null
+    boosterSessionId = 0
   }
 
   private fun broadcastStateUpdate() {
