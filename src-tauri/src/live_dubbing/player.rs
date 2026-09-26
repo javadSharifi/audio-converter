@@ -5,8 +5,9 @@
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::thread;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 use cpal::SampleFormat;
 
 pub struct LiveAudioPlayer {
@@ -31,72 +32,75 @@ impl LiveAudioPlayer {
         is_playing.store(true, Ordering::SeqCst);
         let buffer = self.buffer.clone();
 
-        let thread_playing = is_playing.clone();
-        thread::spawn(move || {
-            let host = cpal::default_host();
-            let Some(device) = host.default_output_device() else {
-                eprintln!("Audio playback: No default output audio device found");
-                thread_playing.store(false, Ordering::SeqCst);
-                return;
-            };
-
-            let Ok(config) = device.default_output_config() else {
-                eprintln!("Audio playback: Failed to get default output config");
-                thread_playing.store(false, Ordering::SeqCst);
-                return;
-            };
-
-            let channels = config.channels() as usize;
-            let sample_format = config.sample_format();
-
-            let buffer_clone = buffer.clone();
-            let err_fn = |err| eprintln!("Audio playback stream error: {}", err);
-
-            let stream_result = match sample_format {
-                SampleFormat::F32 => device.build_output_stream(
-                    &config.into(),
-                    move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
-                        let mut buf = buffer_clone.lock().unwrap();
-                        for frame in data.chunks_mut(channels) {
-                            let sample_i16 = buf.pop_front().unwrap_or(0);
-                            let sample_f32 = (sample_i16 as f32) / 32768.0;
-                            for channel_sample in frame.iter_mut() {
-                                *channel_sample = sample_f32;
-                            }
-                        }
-                    },
-                    err_fn,
-                    None,
-                ),
-                SampleFormat::I16 => device.build_output_stream(
-                    &config.into(),
-                    move |data: &mut [i16], _: &cpal::OutputCallbackInfo| {
-                        let mut buf = buffer_clone.lock().unwrap();
-                        for frame in data.chunks_mut(channels) {
-                            let sample_i16 = buf.pop_front().unwrap_or(0);
-                            for channel_sample in frame.iter_mut() {
-                                *channel_sample = sample_i16;
-                            }
-                        }
-                    },
-                    err_fn,
-                    None,
-                ),
-                _ => {
-                    eprintln!("Audio playback: Unsupported sample format {:?}", sample_format);
+        #[cfg(not(any(target_os = "android", target_os = "ios")))]
+        {
+            let thread_playing = is_playing.clone();
+            std::thread::spawn(move || {
+                let host = cpal::default_host();
+                let Some(device) = host.default_output_device() else {
+                    eprintln!("Audio playback: No default output audio device found");
                     thread_playing.store(false, Ordering::SeqCst);
                     return;
-                }
-            };
+                };
 
-            if let Ok(stream) = stream_result {
-                if stream.play().is_ok() {
-                    while thread_playing.load(Ordering::SeqCst) {
-                        thread::sleep(std::time::Duration::from_millis(50));
+                let Ok(config) = device.default_output_config() else {
+                    eprintln!("Audio playback: Failed to get default output config");
+                    thread_playing.store(false, Ordering::SeqCst);
+                    return;
+                };
+
+                let channels = config.channels() as usize;
+                let sample_format = config.sample_format();
+
+                let buffer_clone = buffer.clone();
+                let err_fn = |err| eprintln!("Audio playback stream error: {}", err);
+
+                let stream_result = match sample_format {
+                    SampleFormat::F32 => device.build_output_stream(
+                        &config.into(),
+                        move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
+                            let mut buf = buffer_clone.lock().unwrap();
+                            for frame in data.chunks_mut(channels) {
+                                let sample_i16 = buf.pop_front().unwrap_or(0);
+                                let sample_f32 = (sample_i16 as f32) / 32768.0;
+                                for channel_sample in frame.iter_mut() {
+                                    *channel_sample = sample_f32;
+                                }
+                            }
+                        },
+                        err_fn,
+                        None,
+                    ),
+                    SampleFormat::I16 => device.build_output_stream(
+                        &config.into(),
+                        move |data: &mut [i16], _: &cpal::OutputCallbackInfo| {
+                            let mut buf = buffer_clone.lock().unwrap();
+                            for frame in data.chunks_mut(channels) {
+                                let sample_i16 = buf.pop_front().unwrap_or(0);
+                                for channel_sample in frame.iter_mut() {
+                                    *channel_sample = sample_i16;
+                                }
+                            }
+                        },
+                        err_fn,
+                        None,
+                    ),
+                    _ => {
+                        eprintln!("Audio playback: Unsupported sample format {:?}", sample_format);
+                        thread_playing.store(false, Ordering::SeqCst);
+                        return;
+                    }
+                };
+
+                if let Ok(stream) = stream_result {
+                    if stream.play().is_ok() {
+                        while thread_playing.load(Ordering::SeqCst) {
+                            std::thread::sleep(std::time::Duration::from_millis(50));
+                        }
                     }
                 }
-            }
-        });
+            });
+        }
 
         Ok(())
     }
